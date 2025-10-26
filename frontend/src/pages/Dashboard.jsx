@@ -12,9 +12,7 @@ const Dashboard = () => {
   const [charts, setCharts] = useState({});
   const [averages, setAverages] = useState({});
   const [currentUser, setCurrentUser] = useState(null);
-  const [droppedChart, setDroppedChart] = useState(null);
-  const [recommendation, setRecommendation] = useState(null); // ✅ structured object
-
+ 
   const chatbotRef = useRef(null);
 
   const companyName = "TechNova Industries";
@@ -289,41 +287,12 @@ const Dashboard = () => {
         </>
       )}
 
-      {/* Chatbot Drop Zone */}
-      <div
-        ref={chatbotRef}
-        onDrop={onDrop}
-        onDragOver={onDragOver}
-        className="bg-white rounded-xl shadow-md p-5 border-2 border-dashed border-blue-300 hover:border-blue-600 transition mb-4"
-      >
-        <h3 className="font-semibold text-gray-700 mb-2">
-          Chatbot Assistant 🤖 (Drag Charts Here)
-        </h3>
-        <p className="text-gray-600 text-sm mb-4">
-          Drag a chart above and drop it here to get AI insights.
-        </p>
-        {droppedChart && (
-          <div className="p-3 bg-blue-50 rounded text-blue-700 mb-3">
-            You dropped: <strong>{droppedChart}</strong> — Chatbot analyzing data...
-          </div>
-        )}
-      </div>
+    
 
-      {/* ✅ AI Recommendation Display */}
-      {recommendation && (
-        <div className="bg-yellow-50 border-l-4 border-yellow-500 text-yellow-800 p-4 rounded mb-6 space-y-2">
-          <div><strong>Issue:</strong> {recommendation.issue}</div>
-          <div><strong>Cause:</strong> {recommendation.cause}</div>
-          <div><strong>Solution:</strong> {recommendation.solution}</div>
-        </div>
-      )}
+     
 
       {/* Floating Chatbot Widget */}
-      <ChatWidget
-        droppedChart={droppedChart}
-        chartData={dashboardData}
-        recommendation={recommendation}
-      />
+    <ChatWidget chartData={dashboardData} />
     </div>
   );
 };

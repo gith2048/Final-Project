@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { FiEdit } from "react-icons/fi";
 
 const Profile = ({ currentUser }) => {
   const [summary, setSummary] = useState(null);
@@ -31,6 +32,10 @@ const Profile = ({ currentUser }) => {
       if (response.ok) {
         localStorage.setItem("currentUser", JSON.stringify(data.user));
         setEditMode(false);
+        setName(data.user.name);
+        if (typeof currentUser === "object") {
+          currentUser.name = data.user.name;
+        }
       } else {
         alert(data.message || "Update failed");
       }
@@ -77,46 +82,38 @@ const Profile = ({ currentUser }) => {
         <div className="mb-6">
           <label className="block font-semibold mb-1">Name</label>
           {editMode ? (
-            <input
-              type="text"
+            <div className="flex items-center gap-2">
+              <input type="text"
               value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="border px-3 py-2 rounded w-full"
-            />
+            onChange={(e) => setName(e.target.value)}
+            onBlur={handleSaveName}
+            onKeyDown={(e) => {
+          if (e.key === "Enter") {
+          e.preventDefault();
+          handleSaveName();
+                 }
+           }}
+         className="border px-3 py-2 rounded w-full"
+           autoFocus
+        />
+            </div>
           ) : (
-            <p className="text-gray-700">{name}</p>
+            <div className="flex items-center justify-between">
+              <p className="text-gray-700">{name}</p>
+              <button
+                onClick={() => setEditMode(true)}
+                className="text-blue-600 hover:text-blue-800"
+                aria-label="Edit Name"
+              >
+                <FiEdit size={18} />
+              </button>
+            </div>
           )}
         </div>
 
         <div className="mb-6">
           <label className="block font-semibold mb-1">Email</label>
           <p className="text-gray-700">{currentUser.email}</p>
-        </div>
-
-        <div className="flex gap-4 mb-6">
-          {editMode ? (
-            <>
-              <button
-                onClick={handleSaveName}
-                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-              >
-                Save Name
-              </button>
-              <button
-                onClick={() => setEditMode(false)}
-                className="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400"
-              >
-                Cancel
-              </button>
-            </>
-          ) : (
-            <button
-              onClick={() => setEditMode(true)}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-            >
-              Edit Name
-            </button>
-          )}
         </div>
 
         {/* Reset Password */}
@@ -138,14 +135,14 @@ const Profile = ({ currentUser }) => {
         </div>
 
         {/* Dashboard Button */}
-<a
-  href="/dashboard"
-  target="_blank"
-  rel="noopener noreferrer"
-  className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
->
-  Go to Dashboard
-</a>
+        <a
+          href="/dashboard"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
+        >
+          Go to Dashboard
+        </a>
 
         {/* Machine Summary */}
         <h2 className="text-xl font-semibold mt-8 mb-4">Connected Machines</h2>

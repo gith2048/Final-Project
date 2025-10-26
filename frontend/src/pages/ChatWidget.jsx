@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { FiMessageSquare, FiX } from "react-icons/fi";
 import Chatbot from "../pages/Chatbot";
 
-const ChatWidget = ({ droppedChart = null, chartData = null, recommendation = {} }) => {
+const ChatWidget = ({ chartData = null }) => {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
@@ -35,8 +35,8 @@ const ChatWidget = ({ droppedChart = null, chartData = null, recommendation = {}
           </div>
 
           <div className="p-3 max-h-[500px] overflow-y-auto">
-            {/* ✅ Pass recommendation for context */}
-            <Chatbot recommendation={recommendation} />
+            {/* ✅ Pass chartData for drag-and-drop analysis */}
+            <Chatbot chartData={chartData} />
           </div>
         </div>
       )}

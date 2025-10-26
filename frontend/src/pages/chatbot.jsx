@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 
-const Chatbot = ({ recommendation = {} }) => {
+const Chatbot = ({ chartData }) => {
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -27,25 +27,51 @@ const Chatbot = ({ recommendation = {} }) => {
     }
   };
 
-  // ✅ Scroll chat to bottom
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    const chartId = e.dataTransfer.getData("chartId");
+    if (!chartId || !chartData) return;
+
+    setMessages((prev) => [
+      ...prev,
+      { from: "bot", text: `📊 You dropped: ${chartId}. Analyzing...` },
+    ]);
+
+    try {
+      const res = await axios.post("http://localhost:5000/chat/analyze", {
+        chartType: chartId,
+        data: chartData,
+      });
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          from: "bot",
+          text: `🧠 Recommendation:\n• Issue: ${res.data.issue}\n• Cause: ${res.data.cause}\n• Solution: ${res.data.solution}`,
+        },
+      ]);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { from: "bot", text: "⚠️ Failed to analyze chart." },
+      ]);
+    }
+  };
+
+  const handleDragOver = (e) => e.preventDefault();
+
   useEffect(() => {
     const chatBox = document.getElementById("chatbox");
     if (chatBox) chatBox.scrollTop = chatBox.scrollHeight;
   }, [messages]);
 
   return (
-    <div className="bg-white p-4 rounded shadow space-y-4">
+    <div
+      className="bg-white p-4 rounded shadow space-y-4"
+      onDrop={handleDrop}
+      onDragOver={handleDragOver}
+    >
       <h3 className="font-semibold text-lg">Smart Maintenance Chatbot</h3>
-
-      {/* ✅ Show latest recommendation as context */}
-      {recommendation?.issue && (
-        <div className="text-sm text-gray-600 mb-2 space-y-1">
-          <div><strong>Latest Insight:</strong></div>
-          <div><strong>Issue:</strong> {recommendation.issue}</div>
-          <div><strong>Cause:</strong> {recommendation.cause}</div>
-          <div><strong>Solution:</strong> {recommendation.solution}</div>
-        </div>
-      )}
 
       <input
         type="text"
@@ -69,7 +95,7 @@ const Chatbot = ({ recommendation = {} }) => {
         {messages.map((msg, idx) => (
           <div
             key={idx}
-            className={`p-2 rounded ${
+            className={`p-2 whitespace-pre-line rounded ${
               msg.from === "bot"
                 ? "bg-blue-100 text-blue-800"
                 : "bg-gray-200 text-gray-800"
@@ -81,7 +107,7 @@ const Chatbot = ({ recommendation = {} }) => {
       </div>
 
       <div className="text-xs text-gray-500 text-center">
-        💡 Tip: Ask follow-up questions about the latest recommendation.
+        💡 Tip: Drag a chart into this panel to get AI insights.
       </div>
     </div>
   );
