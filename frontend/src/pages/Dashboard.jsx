@@ -12,6 +12,10 @@ const Dashboard = () => {
   const [charts, setCharts] = useState({});
   const [averages, setAverages] = useState({});
   const [currentUser, setCurrentUser] = useState(null);
+  const [droppedChart, setDroppedChart] = useState(null);
+  const [recommendation, setRecommendation] = useState(null);
+  
+
  
   const chatbotRef = useRef(null);
 
@@ -200,6 +204,19 @@ const Dashboard = () => {
       });
     }
   };
+  const [report, setReport] = useState(null);
+
+const handleSendToColab = async () => {
+  try {
+    const res = await axios.post(
+      "https://spaviet-shawnta-commonly.ngrok-free.dev/process",
+      dashboardData
+    );
+    setReport(res.data);
+  } catch (err) {
+    console.error("Error sending data to Colab:", err);
+  }
+};
 
   const onDragOver = (e) => e.preventDefault();
 
@@ -284,6 +301,30 @@ const Dashboard = () => {
               ))}
             </div>
           </div>
+          <div className="text-center mb-6">
+  <button
+    onClick={handleSendToColab}
+    className="px-5 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 shadow"
+  >
+    Analyze
+  </button>
+</div>
+{report && (
+  <div className="bg-white rounded-xl shadow-md p-5 mb-6">
+    <h3 className="font-semibold text-gray-700 mb-4">Machine Status Report</h3>
+    <p><strong>Status:</strong> {report.status}</p>
+    <p><strong>Avg Temp:</strong> {report.avg_temp}</p>
+    <p><strong>Avg Speed:</strong> {report.avg_speed}</p>
+<a
+  href={report.report_url}
+  download="report.pdf"
+  className="mt-3 inline-block px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
+>
+  Download PDF Report
+</a>
+  </div>
+)}
+
         </>
       )}
 

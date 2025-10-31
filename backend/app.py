@@ -12,6 +12,7 @@ from routes.predict import predict_bp
 from routes.chatbot import chatbot_bp
 import tensorflow as tf
 import pickle
+from report_routes import report_bp
 import numpy as np
 
 
@@ -43,6 +44,7 @@ with open("model/temp_scaler.pkl", "rb") as f:
 
 app.register_blueprint(predict_bp)
 app.register_blueprint(chatbot_bp) 
+app.register_blueprint(report_bp)
 # ---------------------------
 class User(db.Model):
     __tablename__ = 'users'
