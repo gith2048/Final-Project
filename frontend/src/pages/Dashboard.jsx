@@ -209,7 +209,7 @@ const Dashboard = () => {
 const handleSendToColab = async () => {
   try {
     const res = await axios.post(
-      "https://spaviet-shawnta-commonly.ngrok-free.dev/process",
+      "https://final-project-d94j.onrender.com/report/generate",
       dashboardData
     );
     setReport(res.data);
@@ -316,7 +316,7 @@ const handleSendToColab = async () => {
     <p><strong>Avg Temp:</strong> {report.avg_temp}</p>
     <p><strong>Avg Speed:</strong> {report.avg_speed}</p>
 <a
-  href={report.report_url}
+  href="https://final-project-d94j.onrender.com/report/pdf"
   download="report.pdf"
   className="mt-3 inline-block px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
 >
