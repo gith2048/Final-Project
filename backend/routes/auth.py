@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, session
 from models.user import User
 from db import db
 
@@ -20,5 +20,12 @@ def signin():
     data = request.get_json()
     user = User.query.filter_by(email=data['email']).first()
     if user and user.check_password(data['password']):
-        return jsonify({"message": "Login successful", "user": {"name": user.name, "email": user.email}})
+        session["user_email"] = user.email  # ✅ Store email in session
+        return jsonify({
+            "message": "Login successful",
+            "user": {
+                "name": user.name,
+                "email": user.email
+            }
+        })
     return jsonify({"error": "Invalid credentials"}), 401

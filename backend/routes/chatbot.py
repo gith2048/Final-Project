@@ -23,12 +23,12 @@ def chat():
     if intent == "anomaly":
         payload = {
             "temperature": 70,
-            "current": 12,
-            "speed": 25
+            "vibration": 4.5,
+            "speed": 1250
         }
         res = requests.post("http://localhost:5000/predict/anomaly", json=payload)
         result = res.json()
-        if result["anomaly"] == -1:
+        if result.get("anomaly") == -1:
             return jsonify({"response": "⚠️ Anomaly detected in sensor readings."})
         else:
             return jsonify({"response": "✅ Sensor readings look normal."})
@@ -36,12 +36,12 @@ def chat():
     elif intent == "failure":
         payload = {
             "temperature": 70,
-            "current": 12,
-            "speed": 25
+            "vibration": 4.5,
+            "speed": 1250
         }
         res = requests.post("http://localhost:5000/predict/failure", json=payload)
         result = res.json()
-        if result["failure_risk"] == 1:
+        if result.get("failure_risk") == 1:
             return jsonify({"response": "⚠️ High risk of machine failure."})
         else:
             return jsonify({"response": "✅ Machine is operating normally."})

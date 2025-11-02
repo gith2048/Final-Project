@@ -1,7 +1,8 @@
 import os
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-
+from secret import SECRET_KEY
+from flask import session
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
@@ -17,6 +18,7 @@ import numpy as np
 
 
 app = Flask(__name__)
+app.secret_key = SECRET_KEY
 CORS(app, origins=["http://localhost:5173"], supports_credentials=True)
 
 # ---------------------------
@@ -42,7 +44,7 @@ with open("model/temp_scaler.pkl", "rb") as f:
     temp_scaler = pickle.load(f)
 
 
-app.register_blueprint(predict_bp)
+app.register_blueprint(predict_bp, url_prefix="/")
 app.register_blueprint(chatbot_bp) 
 app.register_blueprint(report_bp)
 # ---------------------------
@@ -185,7 +187,11 @@ def verify_otp():
     if user.otp != otp or datetime.utcnow() > user.otp_expires:
         return jsonify({'message': 'Invalid or expired OTP'}), 400
 
+    # ✅ Store email in session after successful OTP verification
+    session["user_email"] = user.email
+
     return jsonify({'message': 'OTP verified'})
+
 
 @app.route('/api/reset-password', methods=['POST'])
 def reset_password():
@@ -306,15 +312,15 @@ def analyze_chart():
         elif chart_type == "barChart":
             latest = {
                 "temperature": chart_data["temperature"][-1],
-                "current": chart_data["current"][-1],
+                "vibration": chart_data["vibration"][-1],
                 "speed": chart_data["speed"][-1]
             }
-            features = [[latest["temperature"], latest["current"], latest["speed"]]]
+            features = [[latest["temperature"], latest["vibration"], latest["speed"]]]
             prediction = rf_model.predict(features)[0]
 
             if prediction == 1:
                 issue = "⚠️ High failure risk detected."
-                cause = "Sensor readings show elevated temperature and current, indicating stress on components."
+                cause = "Sensor readings show elevated temperature and vibration, indicating stress on components."
                 solution = "Schedule immediate inspection, check for wear in bearings and motor alignment."
             else:
                 issue = "✅ Machine is operating normally."
@@ -330,14 +336,14 @@ def analyze_chart():
         elif chart_type == "pieChart":
             features = [[
                 chart_data["temperature"][-1],
-                chart_data["current"][-1],
+                chart_data["vibration"][-1],
                 chart_data["speed"][-1]
             ]]
             anomaly = iso_model.predict(features)[0]
 
             if anomaly == -1:
                 issue = "🚨 Anomaly detected in sensor readings!"
-                cause = "Unusual combination of temperature, current, and speed suggests sensor drift or mechanical fault."
+                cause = "Unusual combination of temperature, vibration, and speed suggests sensor drift or mechanical fault."
                 solution = "Recalibrate sensors and inspect mechanical components for misalignment or wear."
             else:
                 issue = "✅ No anomalies detected."
