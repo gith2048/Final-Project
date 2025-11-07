@@ -5,7 +5,6 @@ import axios from "axios";
 import ChatWidget from "../pages/ChatWidget";
 import RecommendationPanel from "../pages/RecommendationPanel";
 
-
 Chart.register(ChartDataLabels);
 
 const Dashboard = () => {
@@ -38,28 +37,37 @@ const Dashboard = () => {
 
   useEffect(() => {
     if (!selectedMachine) return;
+
     const mockData = {
       timestamps: ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00"],
       temperature: [68, 70, 72, 71, 69, 73],
       vibration: [4.2, 4.5, 4.3, 4.6, 4.4, 4.7],
       speed: [1200, 1250, 1230, 1260, 1240, 1270],
+      current: [3.1, 3.2, 3.3, 3.2, 3.1, 3.4],
+      noise: [65, 66, 67, 68, 66, 69]
     };
+
     setDashboardData(mockData);
     calculateAverages(mockData);
   }, [selectedMachine]);
 
-const calculateAverages = (data) => {
-  const avg = {};
-  ["temperature", "vibration", "speed"].forEach((key) => {
-    const values = data[key];
-    const sum = values.reduce((a, b) => a + b, 0);
-    avg[key] = parseFloat((sum / values.length).toFixed(2));
-  });
-  setAverages(avg);
+  const calculateAverages = (data) => {
+    const avg = {};
+    ["temperature", "vibration", "speed", "current", "noise"].forEach((key) => {
+      const values = data[key];
+      const sum = values.reduce((a, b) => a + b, 0);
+      avg[key] = parseFloat((sum / values.length).toFixed(2));
+    });
+    setAverages(avg);
 
-  const summary = getMachineHealthSummary(avg.temperature, avg.vibration, avg.speed);
-  setHealthSummary(summary);
-};
+    const summary = getMachineHealthSummary(
+      avg.temperature,
+      avg.vibration,
+      avg.speed,
+      avg.noise
+    );
+    setHealthSummary(summary);
+  };
 
   useEffect(() => {
     if (!dashboardData) return;
@@ -69,6 +77,8 @@ const calculateAverages = (data) => {
       updated.temperature = updated.temperature.map((val) => val + (Math.random() * 2 - 1));
       updated.vibration = updated.vibration.map((val) => val + (Math.random() * 0.2 - 0.1));
       updated.speed = updated.speed.map((val) => val + Math.floor(Math.random() * 20 - 10));
+      updated.current = updated.current.map((val) => val + (Math.random() * 0.2 - 0.1));
+      updated.noise = updated.noise.map((val) => val + Math.floor(Math.random() * 3 - 1));
       setDashboardData(updated);
       calculateAverages(updated);
     }, 5000);
@@ -90,30 +100,30 @@ const calculateAverages = (data) => {
 
     createChart("lineChart", "line", {
       labels: dashboardData.timestamps,
-     datasets: [
-  {
-    label: "Temperature (°C)",
-    data: dashboardData.temperature,
-    borderColor: "#e76f51",
-    backgroundColor: "rgba(231, 111, 81, 0.15)",
-    fill: true,
-    tension: 0.4,
-    pointBackgroundColor: dashboardData.temperature.map((val) =>
-      val > 75 ? "#dc2626" : "#e76f51"
-    ),
-  },
-  {
-    label: "Vibration (mm/s)",
-    data: dashboardData.vibration,
-    borderColor: "#2a9d8f",
-    backgroundColor: "rgba(42, 157, 143, 0.15)",
-    fill: true,
-    tension: 0.4,
-    pointBackgroundColor: dashboardData.vibration.map((val) =>
-      val > 5.0 ? "#dc2626" : "#2a9d8f"
-    ),
-  },
-],
+      datasets: [
+        {
+          label: "Temperature (°C)",
+          data: dashboardData.temperature,
+          borderColor: "#e76f51",
+          backgroundColor: "rgba(231, 111, 81, 0.15)",
+          fill: true,
+          tension: 0.4,
+          pointBackgroundColor: dashboardData.temperature.map((val) =>
+            val > 75 ? "#dc2626" : "#e76f51"
+          ),
+        },
+        {
+          label: "Vibration (mm/s)",
+          data: dashboardData.vibration,
+          borderColor: "#2a9d8f",
+          backgroundColor: "rgba(42, 157, 143, 0.15)",
+          fill: true,
+          tension: 0.4,
+          pointBackgroundColor: dashboardData.vibration.map((val) =>
+            val > 5.0 ? "#dc2626" : "#2a9d8f"
+          ),
+        },
+      ],
     }, {
       responsive: true,
       maintainAspectRatio: false,
@@ -123,20 +133,20 @@ const calculateAverages = (data) => {
       },
     });
 
- createChart("barChart", "bar", {
-  labels: dashboardData.timestamps,
-  datasets: [
-    {
-      label: "Speed (RPM)",
-      data: dashboardData.speed,
-      backgroundColor: dashboardData.speed.map((val) =>
-        val > 1200 ? "#dc2626" : "#4B9CD3"
-      ),
-      borderRadius: 8,
-      barThickness: 30,
-    },
-  ],
-}, {
+    createChart("barChart", "bar", {
+      labels: dashboardData.timestamps,
+      datasets: [
+        {
+          label: "Speed (RPM)",
+          data: dashboardData.speed,
+          backgroundColor: dashboardData.speed.map((val) =>
+            val > 1200 ? "#dc2626" : "#4B9CD3"
+          ),
+          borderRadius: 8,
+          barThickness: 30,
+        },
+      ],
+    }, {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
@@ -157,7 +167,7 @@ const calculateAverages = (data) => {
         {
           label: "Machine Load",
           data: [
-            dashboardData.speed[dashboardData.speed.length - 1] % 40,
+            dashboardData.speed.at(-1) % 40,
             40,
             20,
           ],
@@ -189,46 +199,74 @@ const calculateAverages = (data) => {
   };
 
   const onDragStart = (e, chartId) => e.dataTransfer.setData("chartId", chartId);
+  const onDragOver = (e) => e.preventDefault();
 
- const onDrop = async (e) => {
-  e.preventDefault();
-  const chartId = e.dataTransfer.getData("chartId");
-  if (!chartId || !dashboardData) return;
+  const onDrop = async (e) => {
+    e.preventDefault();
+    const chartId = e.dataTransfer.getData("chartId");
+    if (!chartId || !dashboardData) return;
 
-  setDroppedChart(chartId);
-  setRecommendation(null);
+    setDroppedChart(chartId);
+    setRecommendation(null);
 
-  try {
-    const payload = {
-      temperature: dashboardData.temperature.at(-1),
-      current: dashboardData.vibration.at(-1),
-      speed: dashboardData.speed.at(-1),
-      sequence: dashboardData.temperature.slice(-5)
-    };
+    try {
+      const payload = {
+        temperature: dashboardData.temperature.at(-1),
+        speed: dashboardData.speed.at(-1),
+        vibration: dashboardData.vibration.at(-1),
+        current: dashboardData.current.at(-1),
+        noise: dashboardData.noise.at(-1),
+        sequence: dashboardData.timestamps.slice(-5).map((_, i) => [
+          dashboardData.temperature.at(-5 + i),
+          dashboardData.speed.at(-5 + i),
+          dashboardData.vibration.at(-5 + i),
+          dashboardData.current.at(-5 + i),
+          dashboardData.noise.at(-5 + i)
+        ])
+      };
 
-    const res = await axios.post("http://localhost:5000/predict", payload);
-    setRecommendation(res.data); // ✅ This now contains all 3 model outputs
-
-    // 🧠 Let the chatbot speak the summary
-    if (res.data?.overall_summary) {
-      window.chatbot?.say?.(res.data.overall_summary);
+      const res = await axios.post("http://localhost:5000/predict", payload);
+      setRecommendation(res.data);
+      if (res.data?.overall_summary) {
+        window.chatbot?.say?.(res.data.overall_summary);
+      }
+    } catch (err) {
+      console.error("Error fetching recommendation:", err);
+            setRecommendation({
+        error: true,
+        message: "⚠️ Failed to analyze chart. Check backend logs."
+      });
+      window.chatbot?.say?.("⚠️ I couldn't analyze the chart. Please try again.");
     }
-  } catch (err) {
-    console.error("Error fetching recommendation:", err);
-    setRecommendation({
-      error: true,
-      message: "⚠️ Failed to analyze chart. Check backend logs."
-    });
-    window.chatbot?.say?.("⚠️ I couldn't analyze the chart. Please try again.");
-  }
-};
+  };
+
  const handleSendToColab = async () => {
   try {
+    // Generate labels from averages
+    const generateLabels = (avg) => {
+      const label = (val, low, high) =>
+        val < low ? "low" : val > high ? "high" : "medium";
+
+      return {
+        temperature: label(avg.temperature, 65, 75),
+        speed: label(avg.speed, 1150, 1250),
+        vibration: label(avg.vibration, 3.0, 5.0),
+        current: label(avg.current, 3.0, 4.5),
+        noise: label(avg.noise, 60, 80),
+      };
+    };
+
+    const labels = generateLabels(averages);
+
     const payload = {
       temperature: dashboardData.temperature,
-      vibration: dashboardData.vibration,
       speed: dashboardData.speed,
-      email: currentUser?.email, // ✅ Send logged-in user's email
+      vibration: dashboardData.vibration,
+      current: dashboardData.current,     // ✅ Added
+      noise: dashboardData.noise,         // ✅ Added
+      email: currentUser?.email,
+      machine_id: selectedMachine,
+      labels: labels
     };
 
     const res = await axios.post(
@@ -245,45 +283,48 @@ const calculateAverages = (data) => {
   }
 };
 
-
-const getMachineHealthSummary = (avgTemp, avgVibration, avgSpeed, threshold = 1200) => {
-  if (avgTemp > 75 && avgSpeed > threshold) {
-    return `⚠️ High temperature and speed detected. Inspect cooling systems and motor load to prevent wear.
+  const getMachineHealthSummary = (avgTemp, avgVibration, avgSpeed, avgNoise, threshold = 1200) => {
+    if (avgTemp > 75 && avgSpeed > threshold) {
+      return `⚠️ High temperature and speed detected. Inspect cooling systems and motor load to prevent wear.
 Consistently elevated readings may indicate thermal stress and overdrive conditions.
 This can reduce motor lifespan and increase energy consumption.
 Immediate inspection is advised to prevent long-term damage.`;
-  }
+    }
 
-  if (avgTemp > 75) {
-    return `⚠️ Temperature exceeds safe limits. Check for overheating, poor ventilation, or lubrication issues.
+    if (avgTemp > 75) {
+      return `⚠️ Temperature exceeds safe limits. Check for overheating, poor ventilation, or lubrication issues.
 Sustained high temperatures can degrade components and affect performance.
 Ensure cooling systems are functioning properly.
 Schedule a thermal inspection to avoid downtime.`;
-  }
+    }
 
-  if (avgSpeed > threshold) {
-    return `⚠️ Speed is above optimal range. Verify motor calibration and ensure load conditions are balanced.
+    if (avgSpeed > threshold) {
+      return `⚠️ Speed is above optimal range. Verify motor calibration and ensure load conditions are balanced.
 Excessive RPM may cause wear, imbalance, or noise.
 Monitor for signs of mechanical strain or instability.
 Adjust operational parameters to maintain safe speed.`;
-  }
+    }
 
-  if (avgVibration > 5.0) {
-    return `⚠️ Vibration levels are high. Inspect bearings, alignment, and structural integrity for faults.
+    if (avgVibration > 5.0) {
+      return `⚠️ Vibration levels are high. Inspect bearings, alignment, and structural integrity for faults.
 Elevated vibration may signal imbalance, looseness, or wear in rotating parts.
 If ignored, it can lead to mechanical failure or safety risks.
 A preventive maintenance check is strongly recommended.`;
-  }
+    }
 
-  return `✅ The machine is operating within safe parameters. All metrics are stable and below critical thresholds.
+    if (avgNoise > 80) {
+      return `⚠️ Noise levels are elevated. Check for loose components, worn insulation, or misalignment.
+High noise may indicate mechanical stress or poor acoustic shielding.
+Inspect housing and motor mounts for vibration transfer.`;
+    }
+
+    return `✅ The machine is operating within safe parameters. All metrics are stable and below critical thresholds.
 No immediate action is required.
 Continue monitoring for any future deviations.
 System health is optimal at this time.`;
-};
+  };
 
-  const onDragOver = (e) => e.preventDefault();
-
-  return (
+return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 p-6">
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
@@ -407,29 +448,63 @@ System health is optimal at this time.`;
             </button>
           </div>
 
-          {/* Report Section */}
-          {report && (
-            <div className="bg-white rounded-xl shadow-md p-5 mb-6">
-              <h3 className="font-semibold text-gray-700 mb-4">Machine Status Report</h3>
-              <p><strong>Status:</strong> {report.status}</p>
-              <p><strong>Avg Temp:</strong> {report.avg_temp}</p>
-              <p><strong>Avg Vibration:</strong> {report.avg_vibration}</p>
-              <p><strong>Avg Speed:</strong> {report.avg_speed}</p>
-              <a
-                href={report.report_url}
-                download="report.pdf"
-                className="mt-3 inline-block px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
-              >
-                📄 Download PDF Report
-              </a>
-             {healthSummary && (
-  <div style={{ marginTop: "1rem", padding: "12px", backgroundColor: "#f0f4ff", borderRadius: "8px" }}>
-    <strong>📝 Overall Health Summary:</strong>
-    <p style={{ whiteSpace: "pre-line" }}>{healthSummary}</p>
+        {/* Report Section */}
+{report && (
+  <div className="bg-white rounded-xl shadow-md p-5 mb-6">
+    <h3 className="font-semibold text-gray-700 mb-4">Machine Status Report</h3>
+    <p><strong>Status:</strong> {report.status}</p>
+    <p><strong>Avg Temp:</strong> {report.avg_temp}</p>
+    <p><strong>Avg Vibration:</strong> {report.avg_vibration}</p>
+    <p><strong>Avg Speed:</strong> {report.avg_speed}</p>
+    <p><strong>Avg Current:</strong> {report.avg_current}</p>
+    <p><strong>Avg Noise:</strong> {report.avg_noise}</p>
+{/*download report*/}
+{/* Download Report */}
+{report.report_url && (
+  <div className="mt-4">
+    <button
+      onClick={() => {
+        fetch(report.report_url, {
+          headers: {
+            "ngrok-skip-browser-warning": "true"
+          }
+        })
+          .then(response => {
+            if (!response.ok) {
+              throw new Error("Network response was not ok");
+            }
+            return response.blob();
+          })
+          .then(blob => {
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = "Machine_Report.pdf";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+          })
+          .catch(err => {
+            console.error("Download failed:", err);
+          });
+      }}
+      className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 inline-block"
+    >
+      📄 Download PDF Report
+    </button>
   </div>
 )}
-            </div>
-          )}
+
+    {/* Health Summary */}
+    {healthSummary && (
+      <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+        <strong>📝 Overall Health Summary:</strong>
+        <p style={{ whiteSpace: "pre-line" }}>{healthSummary}</p>
+      </div>
+    )}
+  </div>
+)}
         </>
       )}
        {recommendation && <RecommendationPanel data={recommendation} />}

@@ -1,16 +1,23 @@
 import React, { useState } from "react";
 import { FiMessageSquare, FiX } from "react-icons/fi";
-import Chatbot from "../pages/Chatbot";
+import Chatbot from "../pages/chatbot";
 
 const ChatWidget = ({ chartData = null }) => {
   const [isOpen, setIsOpen] = useState(false);
+
+  const handleOpen = () => {
+    setIsOpen(true);
+    // Optional: Voice greeting when opened
+    const greeting = "Hello! I'm Optimus Assistant. Drop a chart or ask me anything about your machine.";
+    window.speechSynthesis?.speak(new SpeechSynthesisUtterance(greeting));
+  };
 
   return (
     <>
       {/* 🔹 Floating Button */}
       {!isOpen && (
         <button
-          onClick={() => setIsOpen(true)}
+          onClick={handleOpen}
           className="fixed bottom-6 right-6 bg-blue-600 text-white p-4 rounded-full shadow-lg hover:bg-blue-700 transition z-50"
           aria-label="Open Chatbot"
         >
@@ -21,7 +28,7 @@ const ChatWidget = ({ chartData = null }) => {
       {/* 🔹 Chat Panel */}
       {isOpen && (
         <div
-          className="fixed bottom-6 right-6 w-80 max-w-full bg-white rounded-xl shadow-2xl z-50 border border-gray-200"
+          className="fixed bottom-6 right-6 w-80 max-w-full bg-white rounded-xl shadow-2xl z-50 border border-gray-200 animate-slide-up"
           onDragOver={(e) => e.preventDefault()}
         >
           <div className="flex justify-between items-center p-3 border-b">
@@ -29,6 +36,7 @@ const ChatWidget = ({ chartData = null }) => {
             <button
               onClick={() => setIsOpen(false)}
               className="text-gray-500 hover:text-red-500"
+              aria-label="Close Chatbot"
             >
               <FiX size={20} />
             </button>

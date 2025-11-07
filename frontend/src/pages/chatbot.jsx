@@ -6,6 +6,11 @@ const Chatbot = ({ chartData }) => {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  const TEMP_THRESHOLD = 70.0;
+  const VIBRATION_THRESHOLD = 5.0;
+  const SPEED_THRESHOLD = 1200;
+  const NOISE_THRESHOLD = 80.0;
+
   const handleSend = async () => {
     if (!message.trim()) return;
     setLoading(true);
@@ -27,37 +32,64 @@ const Chatbot = ({ chartData }) => {
     }
   };
 
-  const handleDrop = async (e) => {
-    e.preventDefault();
-    const chartId = e.dataTransfer.getData("chartId");
-    if (!chartId || !chartData) return;
+const handleDrop = async (e) => {
+  e.preventDefault();
+  const chartId = e.dataTransfer.getData("chartId");
+  if (!chartId || !chartData) return;
+
+  setMessages((prev) => [
+    ...prev,
+    { from: "bot", text: `📊 You dropped: ${chartId}. Analyzing...` },
+  ]);
+
+  // ✅ Send only 3 features
+  const filteredData = {
+    temperature: chartData.temperature,
+    speed: chartData.speed,
+    vibration: chartData.vibration,
+  };
+
+  try {
+    const res = await axios.post("http://localhost:5000/chat/analyze", {
+      chartType: chartId,
+      data: filteredData,
+    });
+
+    const { issue, cause, solution, forecast } = res.data;
+
+    let forecastText = "";
+    let alerts = [];
+
+    if (forecast) {
+      forecastText = `\n• Forecast:\n  - Temperature: ${forecast.temperature}°C\n  - Speed: ${forecast.speed}\n  - Vibration: ${forecast.vibration}`;
+
+      if (forecast.temperature > TEMP_THRESHOLD)
+        alerts.push("🚨 Temperature forecast exceeds safe threshold.");
+      if (forecast.vibration > VIBRATION_THRESHOLD)
+        alerts.push("🚨 Vibration forecast is high — check bearings.");
+      if (forecast.speed > SPEED_THRESHOLD)
+        alerts.push("🚨 Speed forecast is elevated — inspect motor load.");
+    }
+
+    const alertText = alerts.length
+      ? `\n\n🔔 Real-Time Alerts:\n${alerts.map((a) => `• ${a}`).join("\n")}`
+      : "";
 
     setMessages((prev) => [
       ...prev,
-      { from: "bot", text: `📊 You dropped: ${chartId}. Analyzing...` },
+      {
+        from: "bot",
+        text: `🧠 Recommendation:\n• Issue: ${issue}\n• Cause: ${cause}\n• Solution: ${solution}${forecastText}${alertText}`,
+      },
     ]);
-
-    try {
-      const res = await axios.post("http://localhost:5000/chat/analyze", {
-        chartType: chartId,
-        data: chartData,
-      });
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          from: "bot",
-          text: `🧠 Recommendation:\n• Issue: ${res.data.issue}\n• Cause: ${res.data.cause}\n• Solution: ${res.data.solution}`,
-        },
-      ]);
-    } catch {
-      setMessages((prev) => [
-        ...prev,
-        { from: "bot", text: "⚠️ Failed to analyze chart." },
-      ]);
-    }
-  };
-
+  } catch (err) {
+    console.error("Chart analysis error:", err);
+    setMessages((prev) => [
+      ...prev,
+      { from: "bot", text: "⚠️ Failed to analyze chart." },
+    ]);
+  }
+};
   const handleDragOver = (e) => e.preventDefault();
 
   useEffect(() => {

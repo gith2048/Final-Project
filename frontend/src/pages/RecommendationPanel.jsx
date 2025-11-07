@@ -13,19 +13,45 @@ export default function RecommendationPanel({ data }) {
     return "border-green-500";
   };
 
+  const renderForecast = (forecast) => {
+    if (!forecast) return null;
+    return (
+      <div className="mt-2 text-sm text-gray-700 space-y-1">
+        <p><strong>Forecast:</strong></p>
+        <ul className="ml-4 list-disc">
+          <li>Temperature: {forecast.temperature}°C</li>
+          <li>Speed: {forecast.speed}</li>
+          <li>Vibration: {forecast.vibration}</li>
+          <li>Current: {forecast.current}</li>
+          <li>Noise: {forecast.noise}</li>
+        </ul>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {Object.entries(data).map(([model, rec]) => {
-          if (model === "thresholds") return null;
+          if (model === "thresholds" || model === "overall_summary") return null;
+
           return (
-            <div key={model} className={`bg-white p-4 rounded shadow border-l-4 ${getSeverityColor(rec.issue)}`}>
-              <h3 className="font-bold text-lg mb-2">{modelLabels[model]}</h3>
+            <div
+              key={model}
+              className={`bg-white p-4 rounded shadow border-l-4 ${getSeverityColor(rec.issue)}`}
+            >
+              <h3 className="font-bold text-lg mb-2">
+                {modelLabels[model] || model.replace("_", " ").toUpperCase()}
+              </h3>
               <p><strong>Issue:</strong> {rec.issue}</p>
               {rec.cause && <p><strong>Cause:</strong> {rec.cause}</p>}
               <p><strong>Solution:</strong> {rec.solution}</p>
-              {rec.forecast_temperature && <p><strong>Forecast:</strong> {rec.forecast_temperature}°C</p>}
-              {rec.score && <p><strong>Anomaly Score:</strong> {rec.score}</p>}
+              {rec.forecast && renderForecast(rec.forecast)}
+              {rec.score && (
+                <p className="mt-2">
+                  <strong>Anomaly Score:</strong> {rec.score}
+                </p>
+              )}
             </div>
           );
         })}
