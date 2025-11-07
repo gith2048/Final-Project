@@ -2,9 +2,11 @@ services:
   - type: web
     name: predictive-backend
     env: python
-    buildCommand: pip install -r requirements.txt
+    buildCommand: |
+      curl -sSL https://install.python-poetry.org | python3 -
+      poetry env use python3.10
+      pip install -r requirements.txt
     startCommand: gunicorn app:app
-    pythonVersion: 3.10
     rootDir: backend
 
   - type: web
