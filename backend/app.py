@@ -15,6 +15,7 @@ from routes.predict import predict_bp
 from routes.chatbot import chatbot_bp
 import tensorflow as tf
 import pickle
+import json
 from report_routes import report_bp
 import numpy as np
 import pandas as pd
@@ -39,19 +40,21 @@ db = SQLAlchemy(app)
 # ---------------------------
 # Models
 # 🔹 Load models
+
+
+
+# Load Isolation Forest
 with open("model/iso_model.pkl", "rb") as f:
     iso_model = pickle.load(f)
 
+# Load Random Forest
 with open("model/rf_model.pkl", "rb") as f:
     rf_model = pickle.load(f)
 
+# Load LSTM model
 lstm_model = tf.keras.models.load_model("model/lstm_model.keras")
 
-# Old scaler (used only for temperature-based models)
-with open("model/temp_scaler.pkl", "rb") as f:
-    temp_scaler = pickle.load(f)
-
-# ✅ New scaler trained on 3 features: temperature, speed, vibration
+# ✅ Load scaler trained on 5 features: temperature, speed, vibration, current, noise
 with open("model/multi_scaler.pkl", "rb") as f:
     multi_scaler = pickle.load(f)
     print("Scaler expects:", multi_scaler.n_features_in_)  # Should print 3
@@ -294,105 +297,144 @@ def analyze_chart():
     chart_type = data.get("chartType")
     chart_data = data.get("data")
 
-    print("Received chartType:", chart_type)
-    print("Received chartData:", chart_data)
-
     if not chart_type or not chart_data:
         return jsonify({
-            "issue": "⚠️ Missing chart data.",
-            "cause": "Chart type or data was not provided.",
-            "solution": "Please ensure a valid chart is dropped with complete sensor data."
+            "issue": "⚠️ Missing chart data",
+            "cause": "No chart type or sensor values provided",
+            "solution": "Drop a valid chart again."
         })
 
-    try:
-        if chart_type == "lineChart":
-            # Use last 5 full feature vectors
-            sequence = []
-            for i in range(-5, 0):
-                sequence.append([
-                    chart_data["temperature"][i],
-                    chart_data["speed"][i],
-                    chart_data["vibration"][i]
-                ])
-            scaled_seq = multi_scaler.transform(sequence)
-            input_seq = np.array(scaled_seq).reshape(1, 5, 3)
-            prediction = lstm_model.predict(input_seq)[0]
-            forecast = multi_scaler.inverse_transform([prediction])[0]
+    # ---------------------------
+    # Extract last 5 samples
+    # ---------------------------
+    sequence = []
+    for i in range(-5, 0):
+        sequence.append([
+            chart_data["temperature"][i],
+            chart_data["speed"][i],
+            chart_data["vibration"][i],
+            chart_data["current"][i],
+            chart_data["noise"][i]
+        ])
 
-            issue = f"📈 Forecasted temperature: {forecast[0]:.2f}°C. Monitor for overheating."
-            cause = "Temperature and speed trends suggest rising thermal load, possibly due to friction or poor airflow."
-            solution = "Inspect cooling system, verify lubrication, and reduce machine load temporarily."
+    # Latest point
+    latest = sequence[-1]
 
-            return jsonify({
-                "issue": issue,
-                "cause": cause,
-                "solution": solution,
-                "forecast": {
-                    "temperature": round(forecast[0], 2),
-                    "speed": round(forecast[1], 2),
-                    "vibration": round(forecast[2], 2)
-                }
-            })
+    # ---------------------------
+    # 1️⃣ LSTM FORECAST (Next point)
+    # ---------------------------
+    scaled_seq = multi_scaler.transform(sequence)
+    input_seq = np.array(scaled_seq).reshape(1, 5, 5)
+    lstm_raw = lstm_model.predict(input_seq)[0]
+    forecast = multi_scaler.inverse_transform([lstm_raw])[0]
 
-        elif chart_type == "barChart":
-            latest = [
-                chart_data["temperature"][-1],
-                chart_data["speed"][-1],
-                chart_data["vibration"][-1]
-            ]
-            prediction = rf_model.predict([latest])[0]
+    f_temp, f_speed, f_vib, f_curr, f_noise = forecast
 
-            if prediction == 1:
-                issue = "⚠️ High failure risk detected."
-                cause = "Sensor readings show elevated temperature and vibration, indicating stress on components."
-                solution = "Schedule immediate inspection, check for wear in bearings and motor alignment."
-            else:
-                issue = "✅ Machine is operating normally."
-                cause = "Sensor readings are within safe operating thresholds."
-                solution = "Continue regular monitoring and preventive maintenance."
+    # ---------------------------
+    # 2️⃣ RANDOM FOREST FAILURE RISK
+    # ---------------------------
+    rf_pred = rf_model.predict([latest])[0]  # 1 = risky
 
-            return jsonify({
-                "issue": issue,
-                "cause": cause,
-                "solution": solution
-            })
+    # ---------------------------
+    # 3️⃣ ISOLATION FOREST ANOMALY
+    # ---------------------------
+    iso_pred = iso_model.predict([latest])[0]  # -1 = anomaly
 
-        elif chart_type == "pieChart":
-            latest = [
-                chart_data["temperature"][-1],
-                chart_data["speed"][-1],
-                chart_data["vibration"][-1]
-            ]
-            anomaly = iso_model.predict([latest])[0]
+    # ---------------------------
+    # 4️⃣ TREND CHECK
+    # ---------------------------
+    def trend(vals):
+        if vals[-1] > vals[-2] > vals[-3]:
+            return "rising"
+        elif vals[-1] < vals[-2] < vals[-3]:
+            return "falling"
+        return "stable"
 
-            if anomaly == -1:
-                issue = "🚨 Anomaly detected in sensor readings!"
-                cause = "Unusual combination of temperature and vibration suggests sensor drift or mechanical fault."
-                solution = "Recalibrate sensors and inspect mechanical components for misalignment or wear."
-            else:
-                issue = "✅ No anomalies detected."
-                cause = "Sensor readings are consistent with expected patterns."
-                solution = "No action needed. Maintain regular monitoring."
+    trends = {
+        "temperature": trend(chart_data["temperature"]),
+        "speed": trend(chart_data["speed"]),
+        "vibration": trend(chart_data["vibration"]),
+        "current": trend(chart_data["current"]),
+        "noise": trend(chart_data["noise"]),
+    }
 
-            return jsonify({
-                "issue": issue,
-                "cause": cause,
-                "solution": solution
-            })
+    # ---------------------------
+    # 5️⃣ THRESHOLD LEVEL CHECK
+    # ---------------------------
+    def level(val, low, high, critical):
+        if val >= critical: return "critical"
+        if val > high: return "high"
+        if val > low: return "medium"
+        return "low"
 
-        else:
-            return jsonify({
-                "issue": "🤔 Unrecognized chart type.",
-                "cause": "Chart type not supported by analysis engine.",
-                "solution": "Use lineChart, barChart, or pieChart for insights."
-            })
+    levels = {
+        "temperature": level(latest[0], 65, 75, 85),
+        "speed": level(latest[1], 1150, 1250, 1350),
+        "vibration": level(latest[2], 3, 5, 7),
+        "current": level(latest[3], 3.5, 4.5, 5.0),
+        "noise": level(latest[4], 70, 80, 90),
+    }
 
-    except Exception as e:
-        return jsonify({
-            "issue": "⚠️ Error analyzing chart.",
-            "cause": str(e),
-            "solution": "Check data format and model availability."
-        })
+    # ---------------------------
+    # 6️⃣ FINAL AI DECISION ENGINE
+    # (Combines LSTM + RF + IsoForest + Threshold + Trends)
+    # ---------------------------
+    if iso_pred == -1:
+        issue = "🚨 Anomaly Detected"
+        cause = "Sensor pattern is unusual. Possible hardware fault."
+        solution = "Inspect sensors, check alignment & verify connections."
+
+    elif rf_pred == 1:
+        issue = "⚠️ High Failure Risk"
+        cause = "ML model predicts breakdown risk from current data."
+        solution = "Reduce load & perform immediate maintenance."
+
+    elif "critical" in levels.values():
+        issue = "🚨 Critical Sensor Level"
+        cause = "One or more sensors exceeded industrial critical limits."
+        solution = "SHUTDOWN recommended within minutes."
+
+    elif "high" in levels.values():
+        issue = "⚠️ High Operating Stress"
+        cause = "Sensors reading above safe high limits."
+        solution = "Inspect machine immediately."
+
+    elif "rising" in trends.values():
+        issue = "📈 Rising Trend Detected"
+        cause = "Values steadily increasing over last readings."
+        solution = "Monitor closely. Maintenance may be needed soon."
+
+    elif f_temp > 75 or f_vib > 5.5:
+        issue = "📉 Unsafe Forecast Ahead"
+        cause = "LSTM prediction indicates possible future overheating/vibration."
+        solution = "Prepare preventive maintenance."
+
+    else:
+        issue = "✅ Machine Operating Normally"
+        cause = "All sensors stable & forecast looks healthy."
+        solution = "No action needed."
+
+    # ---------------------------
+    # Response
+    # ---------------------------
+    return jsonify({
+        "chart_type": chart_type,
+        "issue": issue,
+        "cause": cause,
+        "solution": solution,
+        "forecast": {
+            "temperature": float(f_temp),
+            "speed": float(f_speed),
+            "vibration": float(f_vib),
+            "current": float(f_curr),
+            "noise": float(f_noise)
+        },
+        "levels": levels,
+        "trends": trends,
+        "rf_prediction": int(rf_pred),
+        "anomaly_detection": int(iso_pred)
+    })
+
 
 @app.route('/api/machine-summary', methods=['GET'])
 def machine_summary():
@@ -437,216 +479,33 @@ def get_logs():
         for l in logs
     ])
 
-
-
-
-
-SPEED_THRESHOLD = 1200
-
-def send_alert_email(recipient, alerts, avg_temp, avg_vibration, avg_speed, status, recommendation):
-    if not recipient:
-        print("❌ No recipient email found.")
-        return
-
-    subject = "🚨 Machine Alert Notification"
-    body = f"""
-Hello,
-
-Your machine has triggered the following alert(s):
-
-{chr(10).join(['- ' + alert for alert in alerts]) if alerts else "No alerts triggered."}
-
-📊 Summary:
-- Average Temperature: {avg_temp:.2f} °C
-- Average Vibration: {avg_vibration:.2f} mm/s
-- Average Speed: {avg_speed:.2f} RPM
-- Status: {status}
-
-🛠️ Recommendation:
-{recommendation}
-
-Please review the attached report or log into your dashboard for more details.
-
-Stay safe,
-TechNova Monitoring System
-"""
-
-    msg = MIMEText(body)
-    msg["Subject"] = subject
-    msg["From"] = "s9342902@gmail.com"
-    msg["To"] = recipient
-
+@app.route("/api/sensor-data", methods=["GET"])
+def get_sensor_data_json():
     try:
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls()
-            server.login("s9342902@gmail.com", "ncjn fjwj kcwf ocda")
-            server.send_message(msg)
-            print("✅ Alert email sent to", recipient)
+        with open("sensor_data.json", "r") as f:
+            raw = json.load(f)
+
+        # Convert list of objects into arrays
+        timestamps = [row.get("timestamp") for row in raw]
+        temperature = [row.get("temperature") for row in raw]
+        vibration = [row.get("vibration") for row in raw]
+        speed = [row.get("speed") for row in raw]
+        current = [row.get("current") for row in raw]
+        noise = [row.get("noise") for row in raw]
+
+        return jsonify({
+            "timestamps": timestamps,
+            "temperature": temperature,
+            "vibration": vibration,
+            "speed": speed,
+            "current": current,
+            "noise": noise
+        })
+
     except Exception as e:
-        print("❌ Failed to send email:", e)
-
-def send_label_based_email(recipient, machine_id, labels):
-    severity_map = {"low": [], "medium": [], "high": []}
-    for sensor, level in labels.items():
-        severity_map[level].append(sensor)
-
-    if severity_map["high"]:
-        subject = f"🚨 High Alert for {machine_id}"
-        body = f"""Hello,\n\nThe following sensors on {machine_id} are in critical condition:\n- {', '.join(severity_map['high'])}\n\nImmediate action is recommended.\n\nStay safe,\nTechNova Monitoring System"""
-    elif severity_map["medium"]:
-        subject = f"⚠️ Medium Alert for {machine_id}"
-        body = f"""Hello,\n\nThe following sensors on {machine_id} require attention:\n- {', '.join(severity_map['medium'])}\n\nPlease monitor the machine closely.\n\nStay safe,\nTechNova Monitoring System"""
-    else:
-        subject = f"✅ Low Alert for {machine_id}"
-        body = f"""Hello,\n\nAll sensors on {machine_id} are within safe limits.\n\nNo action required.\n\nStay safe,\nTechNova Monitoring System"""
-
-    msg = MIMEText(body)
-    msg["Subject"] = subject
-    msg["From"] = "s9342902@gmail.com"
-    msg["To"] = recipient
-
-    try:
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls()
-            server.login("s9342902@gmail.com", "ncjn fjwj kcwf ocda")
-            server.send_message(msg)
-            print("✅ Label-based alert sent to", recipient)
-    except Exception as e:
-        print("❌ Failed to send label-based alert:", e)
-
-@app.route("/process", methods=["POST"])
-def process_data():
-    data = request.json
-
-    temp = data.get("temperature", [])
-    speed = data.get("speed", [])
-    vibration = data.get("vibration", [])
-    current = data.get("current", [])
-    noise = data.get("noise", [])
-
-    min_len = min(len(temp), len(speed), len(vibration), len(current), len(noise))
-
-    df = pd.DataFrame({
-        "temperature": temp[:min_len],
-        "speed": speed[:min_len],
-        "vibration": vibration[:min_len],
-        "current": current[:min_len],
-        "noise": noise[:min_len]
-    })
-
-    avg_temp = df["temperature"].mean()
-    avg_speed = df["speed"].mean()
-    avg_vibration = df["vibration"].mean()
-    avg_current = df["current"].mean()
-    avg_noise = df["noise"].mean()
-    status = "Healthy" if avg_temp < 75 and avg_speed <= SPEED_THRESHOLD and avg_vibration <= 5.0 else "Check Required"
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    alerts = []
-    if avg_temp > 75:
-        alerts.append(f"High temperature: {avg_temp:.2f} °C")
-    if avg_vibration > 5.0:
-        alerts.append(f"High vibration: {avg_vibration:.2f} mm/s")
-    if avg_speed > SPEED_THRESHOLD:
-        alerts.append(f"High speed: {avg_speed:.2f} RPM")
-
-    recommendation = (
-        "⚠️ High temperature and high speed detected. Inspect cooling system and motor load." if avg_temp > 75 and avg_speed > SPEED_THRESHOLD else
-        "⚠️ Temperature exceeds safe threshold. Check for overheating or poor lubrication." if avg_temp > 75 else
-        "⚠️ Speed exceeds optimal range. Verify motor calibration and load conditions." if avg_speed > SPEED_THRESHOLD else
-        "⚠️ Vibration exceeds safe limits. Inspect bearings, alignment, and structural integrity." if avg_vibration > 5.0 else
-        "✅ Machine is operating within safe parameters."
-    )
-
-    recipient = data.get("email")
-    if "labels" in data:
-        send_label_based_email(recipient, data.get("machine_id", "Unknown"), data["labels"])
-        if alerts:
-            send_alert_email(recipient, alerts, avg_temp, avg_vibration, avg_speed, status, recommendation)
-
-    # PDF generation
-    pdf_path = "report.pdf"
-    c = canvas.Canvas(pdf_path, pagesize=A4)
-
-    # Page 1
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(100, 800, "Machine Status Report")
-    c.setFont("Helvetica", 12)
-    c.drawString(100, 770, f"Generated on: {timestamp}")
-    c.drawString(100, 750, f"Machine ID: {data.get('machine_id', 'N/A')}")
-    c.drawString(100, 730, f"User Email: {data.get('email', 'N/A')}")
-    c.drawString(100, 700, f"Average Temperature: {avg_temp:.2f} °C")
-    c.drawString(100, 680, f"Average Vibration: {avg_vibration:.2f} mm/s")
-    c.drawString(100, 660, f"Average Speed: {avg_speed:.2f} RPM")
-    c.drawString(100, 640, f"Average Current: {avg_current:.2f} A")
-    c.drawString(100, 620, f"Average Noise: {avg_noise:.2f} dB")
-    c.drawString(100, 590, f"Speed Threshold: {SPEED_THRESHOLD} RPM")
-    c.drawString(100, 570, f"Status: {status}")
-    c.drawString(100, 550, f"Recommendation: {recommendation}")
-
-    labels = data.get("labels", {})
-    c.drawString(100, 520, "Sensor Severity Labels:")
-    for i, (sensor, level) in enumerate(labels.items()):
-        c.drawString(120, 500 - i * 20, f"- {sensor.capitalize()}: {level.upper()}")
-
-    if alerts:
-        c.drawString(100, 400, "Real-Time Alerts:")
-        for i, alert in enumerate(alerts):
-            c.drawString(120, 380 - i * 20, f"• {alert}")
-
-    c.showPage()
-
-    # Page 2
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(100, 800, "Forecast & Maintenance Insights")
-    c.setFont("Helvetica", 12)
-    c.drawString(100, 770, "📈 Forecasted Sensor Readings:")
-    c.drawString(120, 750, "- Temperature: 71.91 °C")
-    c.drawString(120, 730, "- Speed: 5.66 RPM")
-    c.drawString(120, 710, "- Vibration: 1507.27 mm/s")
-
-    c.drawString(100, 680, "📊 Trend Analysis:")
-    c.drawString(120, 660, "- Temperature shows a rising pattern over the last 10 minutes.")
-    c.drawString(120, 640, "- Vibration spikes detected at 3 intervals.")
-
-    c.drawString(100, 610, "🧠 Recommendations:")
-    c.drawString(120, 590, "- Issue: Forecasted temperature nearing threshold.")
-    c.drawString(120, 570, "- Cause: Possible friction or poor airflow.")
-    c.drawString(120, 550, "- Solution: Inspect cooling system, verify lubrication, reduce load.")
-
-    c.drawString(100, 520, "🛠️ Maintenance Checklist:")
-    c.drawString(120, 500, "☑ Inspect cooling system")
-    c.drawString(120, 480, "☑ Verify lubrication")
-    c.drawString(120, 460, "☑ Recalibrate vibration sensors")
-    c.drawString(120, 440, "☑ Check motor alignment")
-
-    # Finalize PDF
-    c.save()
-    print("✅ PDF saved successfully.")
-
-    return jsonify({
-        "status": status,
-        "avg_temp": avg_temp,
-        "avg_vibration": avg_vibration,
-        "avg_speed": avg_speed,
-        "avg_current": avg_current,
-        "avg_noise": avg_noise,
-        "recommendation": recommendation,
-        "alerts": alerts,
-        "report_url": "/download"
-    })
-
-@app.route("/download", methods=["GET"])
-def download_report():
-    return send_file(
-        "report.pdf",
-        as_attachment=True,
-        download_name="Machine_Report.pdf",
-        mimetype="application/pdf"
-    )
+        return jsonify({"error": str(e)}), 500
 
 
-     
 
 
 # ---------------------------

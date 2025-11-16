@@ -4,6 +4,11 @@ import ChartDataLabels from "chartjs-plugin-datalabels";
 import axios from "axios";
 import ChatWidget from "../pages/ChatWidget";
 import RecommendationPanel from "../pages/RecommendationPanel";
+import Panel from "../pages/Panel";
+import GaugeCard from "../pages/GaugeCard";
+import ChartCard from "../pages/ChartCard";
+import SliderControl from "../pages/SliderControl";
+import ColorPickerCard from "../pages/ColorPickerCard";
 
 Chart.register(ChartDataLabels);
 
@@ -19,7 +24,8 @@ const Dashboard = () => {
   const [alerts, setAlerts] = useState([]);
   const [shutdown, setShutdown] = useState(false);
   const [healthSummary, setHealthSummary] = useState("");
-
+  const [emailSent, setEmailSent] = useState(false);
+const [speed, setSpeed] = useState(averages.speed);
   const chatbotRef = useRef(null);
 
   const companyName = "TechNova Industries";
@@ -35,21 +41,123 @@ const Dashboard = () => {
     if (savedUser) setCurrentUser(savedUser);
   }, []);
 
-  useEffect(() => {
-    if (!selectedMachine) return;
+  // useEffect(() => {
+  //   if (!selectedMachine) return;
 
-    const mockData = {
-      timestamps: ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00"],
-      temperature: [68, 70, 72, 71, 69, 73],
-      vibration: [4.2, 4.5, 4.3, 4.6, 4.4, 4.7],
-      speed: [1200, 1250, 1230, 1260, 1240, 1270],
-      current: [3.1, 3.2, 3.3, 3.2, 3.1, 3.4],
-      noise: [65, 66, 67, 68, 66, 69]
-    };
+  //   const mockData = {
+  //     timestamps: ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00"],
+  //     temperature: [68, 70, 72, 71, 69, 73],
+  //     vibration: [4.2, 4.5, 4.3, 4.6, 4.4, 4.7],
+  //     speed: [1200, 1250, 1230, 1260, 1240, 1270],
+  //     current: [3.1, 3.2, 3.3, 3.2, 3.1, 3.4],
+  //     noise: [65, 66, 67, 68, 66, 69],
+  //   };
 
-    setDashboardData(mockData);
-    calculateAverages(mockData);
-  }, [selectedMachine]);
+  //   setDashboardData(mockData);
+  //   calculateAverages(mockData);
+  // }, [selectedMachine]);
+
+
+
+//  useEffect(() => {
+//   if (!selectedMachine) return;
+
+//   const fetchData = async () => {
+//     try {
+//       const res = await axios.get("http://localhost:5000/api/sensor-data");
+
+//       // ⭐ LIMIT DATA HERE
+//       const limited = limitData(res.data, 10); // show last 50 points
+
+//       setDashboardData(limited);
+//       calculateAverages(limited);
+
+//     } catch (err) {
+//       console.error("Error fetching sensor data:", err);
+//     }
+//   };
+
+//   fetchData();
+// }, [selectedMachine]);
+
+// 🔹 FETCH DATA WHEN MACHINE IS SELECTED
+useEffect(() => {
+  if (!selectedMachine) return;  // ⛔ Don't fetch until user selects
+
+  const fetchData = async () => {
+    try {
+      const res = await axios.get("http://localhost:5000/api/sensor-data");
+
+      const limited = limitData(res.data, 10);
+
+      setDashboardData(limited);
+      calculateAverages(limited);
+
+    } catch (err) {
+      console.error("Error fetching sensor data:", err);
+    }
+  };
+
+  fetchData();
+}, [selectedMachine]);  // 🔥 Only runs after selecting machine
+
+
+
+useEffect(() => {
+  if (!dashboardData || !selectedMachine) return;
+
+  const clamp = (value, min) => Math.max(value, min);  // ⛔ Prevent negatives
+
+  const interval = setInterval(() => {
+    setDashboardData(prev => {
+      if (!prev) return prev;
+
+      const rand = (base, amount) =>
+        base + (Math.random() * amount - amount / 2);
+
+      const spike = (value, chance, amount) =>
+        Math.random() < chance ? value + amount * (Math.random() > 0.5 ? 1 : -1) : value;
+
+      let newTemp = clamp(rand(prev.temperature.at(-1), 4), 0);
+      newTemp = clamp(spike(newTemp, 0.2, 10), 0);
+
+      let newVib = clamp(rand(prev.vibration.at(-1), 0.5), 0);
+      newVib = clamp(spike(newVib, 0.15, 2), 0);
+
+      let newSpeed = clamp(rand(prev.speed.at(-1), 40), 0);
+      newSpeed = clamp(spike(newSpeed, 0.2, 120), 0);
+
+      let newCurrent = clamp(rand(prev.current.at(-1), 0.3), 0);
+      newCurrent = clamp(spike(newCurrent, 0.1, 1), 0);
+
+      let newNoise = clamp(rand(prev.noise.at(-1), 5), 0);
+      newNoise = clamp(spike(newNoise, 0.2, 15), 0);
+
+      return {
+        timestamps: [...prev.timestamps.slice(1), new Date().toLocaleTimeString()],
+        temperature: [...prev.temperature.slice(1), newTemp],
+        vibration: [...prev.vibration.slice(1), newVib],
+        speed: [...prev.speed.slice(1), newSpeed],
+        current: [...prev.current.slice(1), newCurrent],
+        noise: [...prev.noise.slice(1), newNoise],
+      };
+    });
+  }, 5000);
+
+  return () => clearInterval(interval);
+}, [dashboardData, selectedMachine]);
+
+
+useEffect(() => {
+  if (!dashboardData) return;
+  calculateAverages(dashboardData);
+}, [dashboardData]);
+
+
+
+
+
+
 
   const calculateAverages = (data) => {
     const avg = {};
@@ -69,22 +177,35 @@ const Dashboard = () => {
     setHealthSummary(summary);
   };
 
-  useEffect(() => {
-    if (!dashboardData) return;
 
-    const interval = setInterval(() => {
-      const updated = { ...dashboardData };
-      updated.temperature = updated.temperature.map((val) => val + (Math.random() * 2 - 1));
-      updated.vibration = updated.vibration.map((val) => val + (Math.random() * 0.2 - 0.1));
-      updated.speed = updated.speed.map((val) => val + Math.floor(Math.random() * 20 - 10));
-      updated.current = updated.current.map((val) => val + (Math.random() * 0.2 - 0.1));
-      updated.noise = updated.noise.map((val) => val + Math.floor(Math.random() * 3 - 1));
-      setDashboardData(updated);
-      calculateAverages(updated);
-    }, 5000);
+  const limitData = (data, size = 10) => {
+  return {
+    timestamps: data.timestamps.slice(-size),
+    temperature: data.temperature.slice(-size),
+    vibration: data.vibration.slice(-size),
+    speed: data.speed.slice(-size),
+    current: data.current.slice(-size),
+    noise: data.noise.slice(-size)
+  };
+};
 
-    return () => clearInterval(interval);
-  }, [dashboardData]);
+
+  // useEffect(() => {
+  //   if (!dashboardData) return;
+
+  //   const interval = setInterval(() => {
+  //     const updated = { ...dashboardData };
+  //     updated.temperature = updated.temperature.map((val) => val + (Math.random() * 2 - 1));
+  //     updated.vibration = updated.vibration.map((val) => val + (Math.random() * 0.2 - 0.1));
+  //     updated.speed = updated.speed.map((val) => val + Math.floor(Math.random() * 20 - 10));
+  //     updated.current = updated.current.map((val) => val + (Math.random() * 0.2 - 0.1));
+  //     updated.noise = updated.noise.map((val) => val + Math.floor(Math.random() * 3 - 1));
+  //     setDashboardData(updated);
+  //     calculateAverages(updated);
+  //   }, 5000);
+
+  //   return () => clearInterval(interval);
+  // }, [dashboardData]);
 
   const renderCharts = () => {
     Object.values(charts || {}).forEach((chart) => {
@@ -202,71 +323,88 @@ const Dashboard = () => {
   const onDragOver = (e) => e.preventDefault();
 
   const onDrop = async (e) => {
-    e.preventDefault();
-    const chartId = e.dataTransfer.getData("chartId");
-    if (!chartId || !dashboardData) return;
+  e.preventDefault();
+  const chartId = e.dataTransfer.getData("chartId");
+  if (!chartId || !dashboardData) return;
 
-    setDroppedChart(chartId);
-    setRecommendation(null);
+  setDroppedChart(chartId);
+  setRecommendation(null);
 
-    try {
-      const payload = {
-        temperature: dashboardData.temperature.at(-1),
-        speed: dashboardData.speed.at(-1),
-        vibration: dashboardData.vibration.at(-1),
-        current: dashboardData.current.at(-1),
-        noise: dashboardData.noise.at(-1),
-        sequence: dashboardData.timestamps.slice(-5).map((_, i) => [
-          dashboardData.temperature.at(-5 + i),
-          dashboardData.speed.at(-5 + i),
-          dashboardData.vibration.at(-5 + i),
-          dashboardData.current.at(-5 + i),
-          dashboardData.noise.at(-5 + i)
-        ])
-      };
-
-      const res = await axios.post("http://localhost:5000/predict", payload);
-      setRecommendation(res.data);
-      if (res.data?.overall_summary) {
-        window.chatbot?.say?.(res.data.overall_summary);
-      }
-    } catch (err) {
-      console.error("Error fetching recommendation:", err);
-            setRecommendation({
-        error: true,
-        message: "⚠️ Failed to analyze chart. Check backend logs."
-      });
-      window.chatbot?.say?.("⚠️ I couldn't analyze the chart. Please try again.");
-    }
-  };
-
- const handleSendToColab = async () => {
   try {
-    // Generate labels from averages
-    const generateLabels = (avg) => {
-      const label = (val, low, high) =>
-        val < low ? "low" : val > high ? "high" : "medium";
-
-      return {
-        temperature: label(avg.temperature, 65, 75),
-        speed: label(avg.speed, 1150, 1250),
-        vibration: label(avg.vibration, 3.0, 5.0),
-        current: label(avg.current, 3.0, 4.5),
-        noise: label(avg.noise, 60, 80),
-      };
+    const payload = {
+      chartType: chartId,
+      data: {
+        temperature: dashboardData.temperature,
+        speed: dashboardData.speed,
+        vibration: dashboardData.vibration,
+        current: dashboardData.current,
+        noise: dashboardData.noise
+      }
     };
 
+    const res = await axios.post("http://localhost:5000/chat/analyze", payload);
+    setRecommendation(res.data);
+
+    if (res.data?.issue) {
+      const summary = `🧠 Recommendation:\n• Issue: ${res.data.issue}\n• Cause: ${res.data.cause}\n• Solution: ${res.data.solution}`;
+      window.chatbot?.say?.(summary);
+    }
+  } catch (err) {
+    console.error("Error fetching recommendation:", err);
+    setRecommendation({
+      error: true,
+      message: "⚠️ Failed to analyze chart. Check backend logs."
+    });
+    window.chatbot?.say?.("⚠️ I couldn't analyze the chart. Please try again.");
+  }
+};
+
+const generateLabels = (avg) => {
+  const label = (val, low, high, critical) =>
+    val >= critical ? "critical" :
+    val > high ? "high" :
+    val >= low ? "medium" :
+    "low";
+
+  return {
+    // 🌡 TEMPERATURE (°C)
+    temperature: label(avg.temperature, 65, 75, 85),
+
+    // ⚙ SPEED (RPM)
+    speed: label(avg.speed, 1150, 1250, 1350),  // fixed critical threshold
+
+    // 📈 VIBRATION (mm/s)
+    vibration: label(avg.vibration, 3.0, 5.0, 7.0),
+
+    // 🔌 CURRENT (A) — fixed low threshold
+    current: label(avg.current, 3.5, 4.5, 5.0),
+
+    // 🔊 NOISE (dB) — fixed low threshold
+    noise: label(avg.noise, 70, 80, 90),
+  };
+};
+
+
+const handleSendToColab = async () => {
+  try {
     const labels = generateLabels(averages);
+    const hasCritical = Object.values(labels).includes("critical");
+
+    // Prevent spam of repeated critical alerts
+    if (hasCritical && emailSent) {
+      console.warn("🚨 Critical alert already sent. Skipping duplicate email.");
+      return;
+    }
 
     const payload = {
       temperature: dashboardData.temperature,
       speed: dashboardData.speed,
       vibration: dashboardData.vibration,
-      current: dashboardData.current,     // ✅ Added
-      noise: dashboardData.noise,         // ✅ Added
+      current: dashboardData.current,
+      noise: dashboardData.noise,
       email: currentUser?.email,
       machine_id: selectedMachine,
-      labels: labels
+      labels: labels,
     };
 
     const res = await axios.post(
@@ -278,10 +416,27 @@ const Dashboard = () => {
     setAlerts(res.data.alerts || []);
     setShutdown(res.data.shutdown);
     setHealthSummary(res.data.health_summary || "");
+
+    // Disable button temporarily (for UI feedback)
+    setEmailSent(true);
+
+    // 🔥 Re-enable analyze button after 10 seconds
+    setTimeout(() => {
+      setEmailSent(false);
+    }, 10000);
+
+    if (hasCritical) {
+      console.log("🚨 Critical alert email triggered.");
+    }
+
   } catch (err) {
     console.error("Error sending data to Colab:", err);
+
+    // Re-enable analyze button if API fails
+    setEmailSent(false);
   }
 };
+
 
   const getMachineHealthSummary = (avgTemp, avgVibration, avgSpeed, avgNoise, threshold = 1200) => {
     if (avgTemp > 75 && avgSpeed > threshold) {
@@ -325,193 +480,210 @@ System health is optimal at this time.`;
   };
 
 return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 p-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-800">
-            Welcome, {currentUser?.name || "User"} 👋
-          </h1>
-          <p className="text-gray-600 mt-1">
-            Monitoring Dashboard for {companyName} | {locationName}
-          </p>
-        </div>
-        <button
-          onClick={handleLogout}
-          className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow"
-        >
-          Logout
-        </button>
+  <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 p-6">
+    {/* Header */}
+    <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+      
+      <div>
+        <h1 className="text-3xl font-bold text-gray-800">
+          Welcome, {currentUser?.name || "User"} 👋
+        </h1>
+        <p className="text-gray-600 mt-1">
+          Monitoring Dashboard for {companyName} | {locationName}
+        </p>
       </div>
+      <button
+        onClick={handleLogout}
+        className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow"
+      >
+        Logout
+      </button>
+    </div>
+ 
 
-            {/* Alerts and Summary */}
-      {alerts.length > 0 && (
-        <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 my-4 rounded">
-          <p className="font-bold">⚠️ Alerts:</p>
-          <ul className="list-disc list-inside">
-            {alerts.map((alert, idx) => (
-              <li key={idx}>{alert}</li>
-            ))}
-          </ul>
-          {shutdown && (
-            <p className="mt-2 font-semibold text-yellow-800">
-              ⚠️ Multiple sensors exceeded thresholds. Please turn off the system for a few hours and restart later.
-            </p>
-          )}
-        </div>
-      )}
-
-      {healthSummary && (
-        <div className="bg-gray-100 p-3 rounded shadow-sm mb-6">
-          <p className="text-sm text-gray-800 font-medium">
-            🩺 <strong>Health Summary:</strong> {healthSummary}
-          </p>
-        </div>
-      )}
-
-      {/* Machine Selector */}
-      <div className="bg-white rounded-xl shadow-md p-5 mb-6">
-        <label className="font-semibold text-gray-700 block mb-2">Select Machine</label>
-        <select
-          value={selectedMachine}
-          onChange={(e) => setSelectedMachine(e.target.value)}
-          className="border p-2 rounded w-full md:w-1/3 focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="">-- Select --</option>
-          {machines.map((m) => (
-            <option key={m.id} value={m.name}>{m.name}</option>
+    {/* Alerts and Summary */}
+    {alerts.length > 0 && (
+      <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 my-4 rounded">
+        <p className="font-bold">⚠️ Alerts:</p>
+        <ul className="list-disc list-inside">
+          {alerts.map((alert, idx) => (
+            <li key={idx}>{alert}</li>
           ))}
-        </select>
-      </div>
-
-      {/* Charts */}
-      {dashboardData && (
-        <>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-            <div
-              className="bg-white rounded-xl shadow-md p-4 cursor-grab hover:shadow-lg"
-              draggable
-              onDragStart={(e) => onDragStart(e, "lineChart")}
-            >
-              <canvas id="lineChart" style={{ width: "100%", height: "350px" }}></canvas>
-            </div>
-            <div
-              className="bg-white rounded-xl shadow-md p-4 cursor-grab hover:shadow-lg"
-              draggable
-              onDragStart={(e) => onDragStart(e, "barChart")}
-            >
-              <canvas id="barChart" style={{ width: "100%", height: "350px" }}></canvas>
-            </div>
-          </div>
-
-          <div
-            className="bg-white rounded-xl shadow-md p-4 mb-6 cursor-grab hover:shadow-lg"
-            draggable
-            onDragStart={(e) => onDragStart(e, "pieChart")}
-          >
-            <canvas id="pieChart" style={{ width: "100%", height: "250px" }}></canvas>
-          </div>
-
-          {/* Averages */}
-          <div className="bg-white rounded-xl shadow-md p-5 mb-6">
-            <h3 className="font-semibold text-gray-700 mb-4">Average Values</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {Object.entries(averages).map(([key, value]) => (
-                <div
-                  key={key}
-                  className="bg-blue-50 text-center rounded-lg p-4 shadow hover:shadow-lg transition"
-                >
-                  <h4 className="text-blue-700 font-bold">{key.toUpperCase()}</h4>
-                  <p
-                    className={`text-lg mt-2 ${
-                      (key === "temperature" && value > 75) ||
-                      (key === "vibration" && value > 5.0) ||
-                      (key === "speed" && value > 1200)
-                        ? "text-red-600 font-bold"
-                        : "text-gray-800"
-                    }`}
-                  >
-                    {value}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Analyze Button */}
-          <div className="text-center mb-6">
-            <button
-              onClick={handleSendToColab}
-              className="px-5 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 shadow"
-            >
-              Analyze
-            </button>
-          </div>
-
-        {/* Report Section */}
-{report && (
-  <div className="bg-white rounded-xl shadow-md p-5 mb-6">
-    <h3 className="font-semibold text-gray-700 mb-4">Machine Status Report</h3>
-    <p><strong>Status:</strong> {report.status}</p>
-    <p><strong>Avg Temp:</strong> {report.avg_temp}</p>
-    <p><strong>Avg Vibration:</strong> {report.avg_vibration}</p>
-    <p><strong>Avg Speed:</strong> {report.avg_speed}</p>
-    <p><strong>Avg Current:</strong> {report.avg_current}</p>
-    <p><strong>Avg Noise:</strong> {report.avg_noise}</p>
-{/*download report*/}
-{/* Download Report */}
-{report.report_url && (
-  <div className="mt-4">
-    <button
-      onClick={() => {
-        fetch(report.report_url, {
-          headers: {
-            "ngrok-skip-browser-warning": "true"
-          }
-        })
-          .then(response => {
-            if (!response.ok) {
-              throw new Error("Network response was not ok");
-            }
-            return response.blob();
-          })
-          .then(blob => {
-            const url = window.URL.createObjectURL(blob);
-            const link = document.createElement("a");
-            link.href = url;
-            link.download = "Machine_Report.pdf";
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            window.URL.revokeObjectURL(url);
-          })
-          .catch(err => {
-            console.error("Download failed:", err);
-          });
-      }}
-      className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 inline-block"
-    >
-      📄 Download PDF Report
-    </button>
-  </div>
-)}
-
-    {/* Health Summary */}
-    {healthSummary && (
-      <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-        <strong>📝 Overall Health Summary:</strong>
-        <p style={{ whiteSpace: "pre-line" }}>{healthSummary}</p>
+        </ul>
+        {shutdown && (
+          <p className="mt-2 font-semibold text-yellow-800">
+            ⚠️ Multiple sensors exceeded thresholds. Please turn off the system for a few hours and restart later.
+          </p>
+        )}
       </div>
     )}
-  </div>
-)}
-        </>
-      )}
-       {recommendation && <RecommendationPanel data={recommendation} />}
-      {/* Floating Chatbot Widget */}
-      <ChatWidget chartData={dashboardData} />
+
+    {healthSummary && (
+      <div className="bg-gray-100 p-3 rounded shadow-sm mb-6">
+        <p className="text-sm text-gray-800 font-medium">
+          🩺 <strong>Health Summary:</strong> {healthSummary}
+        </p>
+      </div>
+    )}
+
+    {/* Machine Selector */}
+    <div className="bg-white rounded-xl shadow-md p-5 mb-6">
+      <label className="font-semibold text-gray-700 block mb-2">Select Machine</label>
+      <select
+        value={selectedMachine}
+        onChange={(e) => setSelectedMachine(e.target.value)}
+        className="border p-2 rounded w-full md:w-1/3 focus:ring-2 focus:ring-blue-500"
+      >
+        <option value="">-- Select --</option>
+        {machines.map((m) => (
+          <option key={m.id} value={m.name}>{m.name}</option>
+        ))}
+      </select>
     </div>
-  );
+
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-8 mb-6">
+  <Panel title="First">
+    {/* ✅ Paste here */}
+    <GaugeCard label="Temperature" value={averages.temperature} />
+    <SliderControl label="Speed" value={speed} onChange={(val) => setSpeed(val)} />
+  </Panel>
+
+  <Panel title="Second">
+    <GaugeCard label="Vibration" value={averages.vibration} />
+    <ColorPickerCard />
+  </Panel>
+</div>
+
+    {/* Charts */}
+    {dashboardData && (
+      <>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          <div
+            className="bg-white rounded-xl shadow-md p-4 cursor-grab hover:shadow-lg"
+            draggable
+            onDragStart={(e) => onDragStart(e, "lineChart")}
+          >
+            <canvas id="lineChart" style={{ width: "100%", height: "350px" }}></canvas>
+          </div>
+          <div
+            className="bg-white rounded-xl shadow-md p-4 cursor-grab hover:shadow-lg"
+            draggable
+            onDragStart={(e) => onDragStart(e, "barChart")}
+          >
+            <canvas id="barChart" style={{ width: "100%", height: "350px" }}></canvas>
+          </div>
+        </div>
+
+        <div
+          className="bg-white rounded-xl shadow-md p-4 mb-6 cursor-grab hover:shadow-lg"
+          draggable
+          onDragStart={(e) => onDragStart(e, "pieChart")}
+        >
+          <canvas id="pieChart" style={{ width: "100%", height: "250px" }}></canvas>
+        </div>
+
+        {/* Averages */}
+        <div className="bg-white rounded-xl shadow-md p-5 mb-6">
+          <h3 className="font-semibold text-gray-700 mb-4">Average Values</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {Object.entries(averages).map(([key, value]) => {
+              const level = generateLabels(averages)[key];
+              const badgeColor = {
+                critical: "bg-red-800 text-white",
+                high: "bg-red-500 text-white",
+                medium: "bg-yellow-400 text-black",
+                low: "bg-green-500 text-white",
+              }[level];
+
+              return (
+                <div key={key} className="bg-blue-50 text-center rounded-lg p-4 shadow hover:shadow-lg transition">
+                  <h4 className="text-blue-700 font-bold">{key.toUpperCase()}</h4>
+                  <p className={`text-lg mt-2 ${level === "critical" ? "text-red-800 font-extrabold" :
+                                                level === "high" ? "text-red-600 font-bold" :
+                                                level === "medium" ? "text-yellow-600 font-semibold" :
+                                                "text-gray-800"}`}>
+                    {value}
+                  </p>
+                  <span className={`mt-2 inline-block px-2 py-1 text-xs rounded-full ${badgeColor}`}>
+                    {level.toUpperCase()}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Analyze Button */}
+        <div className="text-center mb-6">
+          <button
+            onClick={handleSendToColab}
+            disabled={emailSent}
+            className={`px-5 py-2 rounded-lg shadow text-white ${
+              emailSent ? "bg-gray-400 cursor-not-allowed" : "bg-green-600 hover:bg-green-700"
+            }`}
+          >
+            {emailSent ? "Alert Sent" : "Analyze"}
+          </button>
+        </div>
+
+        {/* Report Section */}
+        {report && (
+          <div className="bg-white rounded-xl shadow-md p-5 mb-6">
+            <h3 className="font-semibold text-gray-700 mb-4">Machine Status Report</h3>
+            <p><strong>Status:</strong> {report.status}</p>
+            <p><strong>Avg Temp:</strong> {report.avg_temp}</p>
+            <p><strong>Avg Vibration:</strong> {report.avg_vibration}</p>
+            <p><strong>Avg Speed:</strong> {report.avg_speed}</p>
+            <p><strong>Avg Current:</strong> {report.avg_current}</p>
+            <p><strong>Avg Noise:</strong> {report.avg_noise}</p>
+
+            {/* Download Report */}
+            {report.report_url && (
+              <div className="mt-4">
+                <button
+                  onClick={() => {
+                    fetch(report.report_url, {
+                      headers: { "ngrok-skip-browser-warning": "true" }
+                    })
+                      .then(response => {
+                        if (!response.ok) throw new Error("Network response was not ok");
+                        return response.blob();
+                      })
+                      .then(blob => {
+                        const url = window.URL.createObjectURL(blob);
+                        const link = document.createElement("a");
+                        link.href = url;
+                        link.download = "Machine_Report.pdf";
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        window.URL.revokeObjectURL(url);
+                      })
+                      .catch(err => console.error("Download failed:", err));
+                  }}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 inline-block"
+                >
+                  📄 Download PDF Report
+                </button>
+              </div>
+            )}
+
+            {/* Health Summary */}
+            {healthSummary && (
+              <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+                <strong>📝 Overall Health Summary:</strong>
+                <p style={{ whiteSpace: "pre-line" }}>{healthSummary}</p>
+              </div>
+            )}
+          </div>
+        )}
+      </>
+    )}
+
+    {recommendation && <RecommendationPanel data={recommendation} />}
+    <ChatWidget chartData={dashboardData} />
+  </div>
+);
 };
 
 export default Dashboard;

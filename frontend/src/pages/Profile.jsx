@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { FiEdit } from "react-icons/fi";
 
-const Profile = ({ currentUser }) => {
+const Profile = ({ currentUser, setCurrentUser }) => {
   const [summary, setSummary] = useState(null);
   const [editMode, setEditMode] = useState(false);
   const [name, setName] = useState(currentUser?.name || "");
@@ -18,7 +18,8 @@ const Profile = ({ currentUser }) => {
 
   const handleLogout = () => {
     localStorage.removeItem("currentUser");
-    navigate("/login");
+    setCurrentUser(null); // Clear user state
+    navigate("/login");   // Redirect to login page
   };
 
   const handleSaveName = async () => {
@@ -83,19 +84,20 @@ const Profile = ({ currentUser }) => {
           <label className="block font-semibold mb-1">Name</label>
           {editMode ? (
             <div className="flex items-center gap-2">
-              <input type="text"
-              value={name}
-            onChange={(e) => setName(e.target.value)}
-            onBlur={handleSaveName}
-            onKeyDown={(e) => {
-          if (e.key === "Enter") {
-          e.preventDefault();
-          handleSaveName();
-                 }
-           }}
-         className="border px-3 py-2 rounded w-full"
-           autoFocus
-        />
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onBlur={handleSaveName}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleSaveName();
+                  }
+                }}
+                className="border px-3 py-2 rounded w-full"
+                autoFocus
+              />
             </div>
           ) : (
             <div className="flex items-center justify-between">

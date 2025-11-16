@@ -18,7 +18,7 @@ const ChatWidget = ({ chartData = null }) => {
       {!isOpen && (
         <button
           onClick={handleOpen}
-          className="fixed bottom-6 right-6 bg-blue-600 text-white p-4 rounded-full shadow-lg hover:bg-blue-700 transition z-50"
+          className="fixed bottom-24 right-6 bg-blue-600 text-white p-4 rounded-full shadow-lg hover:bg-blue-700 transition z-50"
           aria-label="Open Chatbot"
         >
           <FiMessageSquare size={24} />
@@ -28,7 +28,7 @@ const ChatWidget = ({ chartData = null }) => {
       {/* 🔹 Chat Panel */}
       {isOpen && (
         <div
-          className="fixed bottom-6 right-6 w-80 max-w-full bg-white rounded-xl shadow-2xl z-50 border border-gray-200 animate-slide-up"
+          className="fixed bottom-24 right-6 w-80 max-w-full bg-white rounded-xl shadow-2xl z-50 border border-gray-200 animate-slide-up"
           onDragOver={(e) => e.preventDefault()}
         >
           <div className="flex justify-between items-center p-3 border-b">

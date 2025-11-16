@@ -9,6 +9,7 @@ const Chatbot = ({ chartData }) => {
   const TEMP_THRESHOLD = 70.0;
   const VIBRATION_THRESHOLD = 5.0;
   const SPEED_THRESHOLD = 1200;
+  const CURRENT_THRESHOLD = 4.5;
   const NOISE_THRESHOLD = 80.0;
 
   const handleSend = async () => {
@@ -32,64 +33,75 @@ const Chatbot = ({ chartData }) => {
     }
   };
 
-const handleDrop = async (e) => {
-  e.preventDefault();
-  const chartId = e.dataTransfer.getData("chartId");
-  if (!chartId || !chartData) return;
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    const chartId = e.dataTransfer.getData("chartId");
+    if (!chartId || !chartData) return;
 
-  setMessages((prev) => [
-    ...prev,
-    { from: "bot", text: `📊 You dropped: ${chartId}. Analyzing...` },
-  ]);
+    setMessages((prev) => [
+      ...prev,
+      { from: "bot", text: `📊 You dropped: ${chartId}. Analyzing...` },
+    ]);
 
-  // ✅ Send only 3 features
-  const filteredData = {
-    temperature: chartData.temperature,
-    speed: chartData.speed,
-    vibration: chartData.vibration,
+    const filteredData = {
+      temperature: chartData.temperature,
+      speed: chartData.speed,
+      vibration: chartData.vibration,
+      current: chartData.current,
+      noise: chartData.noise,
+    };
+
+    try {
+      const res = await axios.post("http://localhost:5000/chat/analyze", {
+        chartType: chartId,
+        data: filteredData,
+      });
+
+      const { issue, cause, solution, forecast } = res.data;
+
+      let forecastText = "";
+      let alerts = [];
+
+      if (forecast) {
+        forecastText = `\n• Forecast:
+  - Temperature: ${forecast.temperature}°C
+  - Speed: ${forecast.speed}
+  - Vibration: ${forecast.vibration}
+  - Current: ${forecast.current}
+  - Noise: ${forecast.noise}`;
+
+        if (forecast.temperature > TEMP_THRESHOLD)
+          alerts.push("🚨 Temperature forecast exceeds safe threshold.");
+        if (forecast.vibration > VIBRATION_THRESHOLD)
+          alerts.push("🚨 Vibration forecast is high — check bearings.");
+        if (forecast.speed > SPEED_THRESHOLD)
+          alerts.push("🚨 Speed forecast is elevated — inspect motor load.");
+        if (forecast.current > CURRENT_THRESHOLD)
+          alerts.push("🚨 Current forecast is high — check for overload or short circuit.");
+        if (forecast.noise > NOISE_THRESHOLD)
+          alerts.push("🚨 Noise forecast is elevated — inspect for mechanical wear or imbalance.");
+      }
+
+      const alertText = alerts.length
+        ? `\n\n🔔 Real-Time Alerts:\n${alerts.map((a) => `• ${a}`).join("\n")}`
+        : "";
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          from: "bot",
+          text: `🧠 Recommendation:\n• Issue: ${issue}\n• Cause: ${cause}\n• Solution: ${solution}${forecastText}${alertText}`,
+        },
+      ]);
+    } catch (err) {
+      console.error("Chart analysis error:", err);
+      setMessages((prev) => [
+        ...prev,
+        { from: "bot", text: "⚠️ Failed to analyze chart." },
+      ]);
+    }
   };
 
-  try {
-    const res = await axios.post("http://localhost:5000/chat/analyze", {
-      chartType: chartId,
-      data: filteredData,
-    });
-
-    const { issue, cause, solution, forecast } = res.data;
-
-    let forecastText = "";
-    let alerts = [];
-
-    if (forecast) {
-      forecastText = `\n• Forecast:\n  - Temperature: ${forecast.temperature}°C\n  - Speed: ${forecast.speed}\n  - Vibration: ${forecast.vibration}`;
-
-      if (forecast.temperature > TEMP_THRESHOLD)
-        alerts.push("🚨 Temperature forecast exceeds safe threshold.");
-      if (forecast.vibration > VIBRATION_THRESHOLD)
-        alerts.push("🚨 Vibration forecast is high — check bearings.");
-      if (forecast.speed > SPEED_THRESHOLD)
-        alerts.push("🚨 Speed forecast is elevated — inspect motor load.");
-    }
-
-    const alertText = alerts.length
-      ? `\n\n🔔 Real-Time Alerts:\n${alerts.map((a) => `• ${a}`).join("\n")}`
-      : "";
-
-    setMessages((prev) => [
-      ...prev,
-      {
-        from: "bot",
-        text: `🧠 Recommendation:\n• Issue: ${issue}\n• Cause: ${cause}\n• Solution: ${solution}${forecastText}${alertText}`,
-      },
-    ]);
-  } catch (err) {
-    console.error("Chart analysis error:", err);
-    setMessages((prev) => [
-      ...prev,
-      { from: "bot", text: "⚠️ Failed to analyze chart." },
-    ]);
-  }
-};
   const handleDragOver = (e) => e.preventDefault();
 
   useEffect(() => {

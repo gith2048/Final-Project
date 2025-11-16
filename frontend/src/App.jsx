@@ -64,16 +64,16 @@ function App() {
         element={<VerifyLoginOtp setCurrentUser={setCurrentUser} />}
       />
 
-      <Route
-        path="/profile"
-        element={
-          currentUser ? (
-            <Profile currentUser={currentUser} />
-          ) : (
-            <Navigate to="/login" />
-          )
-        }
-      />
+    <Route
+  path="/profile"
+  element={
+    currentUser ? (
+      <Profile currentUser={currentUser} setCurrentUser={setCurrentUser} />
+    ) : (
+      <Navigate to="/login" />
+    )
+  }
+/>
       <Route
         path="/dashboard"
         element={
