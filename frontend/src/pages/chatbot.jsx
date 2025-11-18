@@ -6,15 +6,10 @@ const Chatbot = ({ chartData }) => {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  const TEMP_THRESHOLD = 70.0;
-  const VIBRATION_THRESHOLD = 5.0;
-  const SPEED_THRESHOLD = 1200;
-  const CURRENT_THRESHOLD = 4.5;
-  const NOISE_THRESHOLD = 80.0;
-
   const handleSend = async () => {
     if (!message.trim()) return;
     setLoading(true);
+
     try {
       const res = await axios.post("http://localhost:5000/chat", { message });
       setMessages((prev) => [
@@ -33,77 +28,94 @@ const Chatbot = ({ chartData }) => {
     }
   };
 
-  const handleDrop = async (e) => {
-    e.preventDefault();
-    const chartId = e.dataTransfer.getData("chartId");
-    if (!chartId || !chartData) return;
+  // -------------------------
+  //   DRAG & DROP ANALYSIS
+  // -------------------------
+ const handleDrop = async (e) => {
+  e.preventDefault();
+  const chartId = e.dataTransfer.getData("chartId");
 
+  if (!chartId || !chartData) return;
+
+  setMessages((prev) => [
+    ...prev,
+    { from: "bot", text: `📊 You dropped: ${chartId}. Analyzing...` },
+  ]);
+
+  const filteredData = {
+    temperature: chartData.temperature || [],
+    speed: chartData.speed || [],
+    vibration: chartData.vibration || [],
+  };
+
+  try {
+    const res = await axios.post("http://localhost:5000/chat/analyze", {
+      chartType: chartId,
+      data: filteredData,
+    });
+
+    const data = res.data;
+
+    // Safely extract model blocks with fallbacks
+    const lstm = data.lstm || {};
+    const rf = data.random_forest || {};
+    const iso = data.isolation_forest || {};
+    const summary = data.overall_summary || "No summary available.";
+
+    // Forecast block
+    const f = lstm.forecast || { temperature: "N/A", speed: "N/A", vibration: "N/A" };
+    const forecastText = `
+• Forecast:
+  - Temperature: ${f.temperature?.toFixed(2) ?? 'N/A'}°C
+  - Speed: ${f.speed?.toFixed(2) ?? 'N/A'} RPM
+  - Vibration: ${f.vibration?.toFixed(2) ?? 'N/A'} mm/s
+`;
+
+    const finalResponse = `
+🧠 **AI Recommendation Based on Chart:**
+
+📌 **Overall Summary:**  
+${summary || "No overall summary provided."}
+
+-----------------------------
+
+📘 **LSTM Forecast Analysis**
+• Issue: ${lstm.issue || "Not available"}
+• Cause: ${lstm.cause || "Not available"}
+• Solution: ${lstm.solution || "Not available"}
+${forecastText}
+
+-----------------------------
+
+🟡 **Random Forest**
+• Issue: ${rf.issue || "Not available"}
+• Cause: ${rf.cause || "Not available"}
+• Solution: ${rf.solution || "Not available"}
+
+-----------------------------
+
+🔴 **Isolation Forest**
+• Issue: ${iso.issue || "Not available"}
+• Cause: ${iso.cause || "Not available"}
+• Solution: ${iso.solution || "Not available"}
+(Anomaly Score: ${iso.score?.toFixed(4) ?? 'N/A'})
+`;
+
+    setMessages((prev) => [...prev, { from: "bot", text: finalResponse }]);
+
+  } catch (err) {
+    console.error("Drop Analysis Error:", err);
     setMessages((prev) => [
       ...prev,
-      { from: "bot", text: `📊 You dropped: ${chartId}. Analyzing...` },
+      { from: "bot", text: "⚠️ Failed to analyze chart. Check backend." },
     ]);
+  }
+};
 
-    const filteredData = {
-      temperature: chartData.temperature,
-      speed: chartData.speed,
-      vibration: chartData.vibration,
-      current: chartData.current,
-      noise: chartData.noise,
-    };
-
-    try {
-      const res = await axios.post("http://localhost:5000/chat/analyze", {
-        chartType: chartId,
-        data: filteredData,
-      });
-
-      const { issue, cause, solution, forecast } = res.data;
-
-      let forecastText = "";
-      let alerts = [];
-
-      if (forecast) {
-        forecastText = `\n• Forecast:
-  - Temperature: ${forecast.temperature}°C
-  - Speed: ${forecast.speed}
-  - Vibration: ${forecast.vibration}
-  - Current: ${forecast.current}
-  - Noise: ${forecast.noise}`;
-
-        if (forecast.temperature > TEMP_THRESHOLD)
-          alerts.push("🚨 Temperature forecast exceeds safe threshold.");
-        if (forecast.vibration > VIBRATION_THRESHOLD)
-          alerts.push("🚨 Vibration forecast is high — check bearings.");
-        if (forecast.speed > SPEED_THRESHOLD)
-          alerts.push("🚨 Speed forecast is elevated — inspect motor load.");
-        if (forecast.current > CURRENT_THRESHOLD)
-          alerts.push("🚨 Current forecast is high — check for overload or short circuit.");
-        if (forecast.noise > NOISE_THRESHOLD)
-          alerts.push("🚨 Noise forecast is elevated — inspect for mechanical wear or imbalance.");
-      }
-
-      const alertText = alerts.length
-        ? `\n\n🔔 Real-Time Alerts:\n${alerts.map((a) => `• ${a}`).join("\n")}`
-        : "";
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          from: "bot",
-          text: `🧠 Recommendation:\n• Issue: ${issue}\n• Cause: ${cause}\n• Solution: ${solution}${forecastText}${alertText}`,
-        },
-      ]);
-    } catch (err) {
-      console.error("Chart analysis error:", err);
-      setMessages((prev) => [
-        ...prev,
-        { from: "bot", text: "⚠️ Failed to analyze chart." },
-      ]);
-    }
-  };
 
   const handleDragOver = (e) => e.preventDefault();
 
+  // Auto-scroll chat window
   useEffect(() => {
     const chatBox = document.getElementById("chatbox");
     if (chatBox) chatBox.scrollTop = chatBox.scrollHeight;
@@ -121,9 +133,10 @@ const Chatbot = ({ chartData }) => {
         type="text"
         value={message}
         onChange={(e) => setMessage(e.target.value)}
-        placeholder="Ask about anomalies, failure risk, or forecasts..."
+        placeholder="Ask about failures, anomalies, or forecasts..."
         className="border p-2 rounded w-full"
       />
+
       <button
         onClick={handleSend}
         className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
@@ -136,6 +149,7 @@ const Chatbot = ({ chartData }) => {
         className="max-h-64 overflow-y-auto bg-blue-50 p-3 rounded shadow text-sm text-gray-800 space-y-2"
       >
         {loading && <div className="text-blue-600">Thinking...</div>}
+
         {messages.map((msg, idx) => (
           <div
             key={idx}

@@ -6,7 +6,6 @@ import ChatWidget from "../pages/ChatWidget";
 import RecommendationPanel from "../pages/RecommendationPanel";
 import Panel from "../pages/Panel";
 import GaugeCard from "../pages/GaugeCard";
-import ChartCard from "../pages/ChartCard";
 import SliderControl from "../pages/SliderControl";
 import ColorPickerCard from "../pages/ColorPickerCard";
 
@@ -25,121 +24,88 @@ const Dashboard = () => {
   const [shutdown, setShutdown] = useState(false);
   const [healthSummary, setHealthSummary] = useState("");
   const [emailSent, setEmailSent] = useState(false);
-const [speed, setSpeed] = useState(averages.speed);
+
+  const [speed, setSpeed] = useState(0);
   const chatbotRef = useRef(null);
 
   const companyName = "TechNova Industries";
   const locationName = "Bangalore, India";
+
   const machines = [
-    { id: 1, name: "Machine A" },
-    { id: 2, name: "Machine B" },
-    { id: 3, name: "Machine C" },
+    { id: 1, name: "Machine_A" },
+    { id: 2, name: "Machine_B" },
+    { id: 3, name: "Machine_C" },
   ];
 
+  // Load logged user
   useEffect(() => {
     const savedUser = JSON.parse(localStorage.getItem("currentUser"));
     if (savedUser) setCurrentUser(savedUser);
   }, []);
 
-  // useEffect(() => {
-  //   if (!selectedMachine) return;
+  // -------------------------------
+  // FETCH MACHINE DATA
+  // -------------------------------
+  useEffect(() => {
+    if (!selectedMachine) return;
 
-  //   const mockData = {
-  //     timestamps: ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00"],
-  //     temperature: [68, 70, 72, 71, 69, 73],
-  //     vibration: [4.2, 4.5, 4.3, 4.6, 4.4, 4.7],
-  //     speed: [1200, 1250, 1230, 1260, 1240, 1270],
-  //     current: [3.1, 3.2, 3.3, 3.2, 3.1, 3.4],
-  //     noise: [65, 66, 67, 68, 66, 69],
-  //   };
+    const fetchData = async () => {
+      try {
+        const res = await axios.get("http://localhost:5000/api/sensor-data");
 
-  //   setDashboardData(mockData);
-  //   calculateAverages(mockData);
-  // }, [selectedMachine]);
+        const machineData = res.data[selectedMachine];
 
+        if (!machineData) {
+          console.error("Selected machine not found:", selectedMachine);
+          return;
+        }
 
+        const DPs =20; // 👈 SET MAX DATAPOINTS
+        const limited = {
+          timestamps: machineData.timestamps.slice(-DPs),
+          temperature: machineData.temperature.slice(-DPs),
+          vibration: machineData.vibration.slice(-DPs),
+          speed: machineData.speed.slice(-DPs),
+        };
 
-//  useEffect(() => {
-//   if (!selectedMachine) return;
+        setDashboardData(limited);
+        calculateAverages(limited);
+      } catch (err) {
+        console.error("Error fetching sensor data:", err);
+      }
+    };
 
-//   const fetchData = async () => {
-//     try {
-//       const res = await axios.get("http://localhost:5000/api/sensor-data");
+    fetchData();
+  }, [selectedMachine]);
 
-//       // ⭐ LIMIT DATA HERE
-//       const limited = limitData(res.data, 10); // show last 50 points
-
-//       setDashboardData(limited);
-//       calculateAverages(limited);
-
-//     } catch (err) {
-//       console.error("Error fetching sensor data:", err);
-//     }
-//   };
-
-//   fetchData();
-// }, [selectedMachine]);
-
-// 🔹 FETCH DATA WHEN MACHINE IS SELECTED
-useEffect(() => {
-  if (!selectedMachine) return;  // ⛔ Don't fetch until user selects
-
-  const fetchData = async () => {
-    try {
-      const res = await axios.get("http://localhost:5000/api/sensor-data");
-
-      const limited = limitData(res.data, 10);
-
-      setDashboardData(limited);
-      calculateAverages(limited);
-
-    } catch (err) {
-      console.error("Error fetching sensor data:", err);
-    }
-  };
-
-  fetchData();
-}, [selectedMachine]);  // 🔥 Only runs after selecting machine
-
-
-
-useEffect(() => {
+  // -------------------------------
+  // LIVE RANDOM SENSOR SIMULATION
+  // -------------------------------
+ useEffect(() => {
   if (!dashboardData || !selectedMachine) return;
-
-  const clamp = (value, min) => Math.max(value, min);  // ⛔ Prevent negatives
 
   const interval = setInterval(() => {
     setDashboardData(prev => {
       if (!prev) return prev;
 
-      const rand = (base, amount) =>
-        base + (Math.random() * amount - amount / 2);
+      const rand = (v, a) => v + (Math.random() * a - a / 2);
+      const spike = (v, chance, amt) =>
+        Math.random() < chance ? v + (Math.random() < 0.5 ? amt : -amt) : v;
 
-      const spike = (value, chance, amount) =>
-        Math.random() < chance ? value + amount * (Math.random() > 0.5 ? 1 : -1) : value;
+      let newTemp = rand(prev.temperature.at(-1), 3);
+      newTemp = spike(newTemp, 0.2, 8);
 
-      let newTemp = clamp(rand(prev.temperature.at(-1), 4), 0);
-      newTemp = clamp(spike(newTemp, 0.2, 10), 0);
+      let newVib = rand(prev.vibration.at(-1), 0.5);
+      newVib = spike(newVib, 0.15, 2);
 
-      let newVib = clamp(rand(prev.vibration.at(-1), 0.5), 0);
-      newVib = clamp(spike(newVib, 0.15, 2), 0);
-
-      let newSpeed = clamp(rand(prev.speed.at(-1), 40), 0);
-      newSpeed = clamp(spike(newSpeed, 0.2, 120), 0);
-
-      let newCurrent = clamp(rand(prev.current.at(-1), 0.3), 0);
-      newCurrent = clamp(spike(newCurrent, 0.1, 1), 0);
-
-      let newNoise = clamp(rand(prev.noise.at(-1), 5), 0);
-      newNoise = clamp(spike(newNoise, 0.2, 15), 0);
+      let newSpeed = rand(prev.speed.at(-1), 40);
+      newSpeed = spike(newSpeed, 0.2, 120);
 
       return {
         timestamps: [...prev.timestamps.slice(1), new Date().toLocaleTimeString()],
-        temperature: [...prev.temperature.slice(1), newTemp],
-        vibration: [...prev.vibration.slice(1), newVib],
-        speed: [...prev.speed.slice(1), newSpeed],
-        current: [...prev.current.slice(1), newCurrent],
-        noise: [...prev.noise.slice(1), newNoise],
+        temperature: [...prev.temperature.slice(1), Math.max(0, newTemp)],
+        vibration: [...prev.vibration.slice(1), Math.max(0, newVib)],
+        speed: [...prev.speed.slice(1), Math.max(0, newSpeed)],
       };
     });
   }, 5000);
@@ -147,182 +113,264 @@ useEffect(() => {
   return () => clearInterval(interval);
 }, [dashboardData, selectedMachine]);
 
-
 useEffect(() => {
   if (!dashboardData) return;
   calculateAverages(dashboardData);
 }, [dashboardData]);
 
 
+  // -------------------------------
+  // CALCULATE AVERAGES
+  // -------------------------------
+const calculateAverages = (data) => {
+  if (!data) return;
 
+  const avg = {};
 
+  // Compute average for ONLY 3 parameters
+  ["temperature", "vibration", "speed"].forEach((key) => {
+    const arr = data[key] || [];
 
+    if (arr.length === 0) {
+      avg[key] = 0;
+    } else {
+      const sum = arr.reduce((a, b) => a + b, 0);
+      avg[key] = parseFloat((sum / arr.length).toFixed(2));
+    }
+  });
 
+  setAverages(avg);
 
-  const calculateAverages = (data) => {
-    const avg = {};
-    ["temperature", "vibration", "speed", "current", "noise"].forEach((key) => {
-      const values = data[key];
-      const sum = values.reduce((a, b) => a + b, 0);
-      avg[key] = parseFloat((sum / values.length).toFixed(2));
-    });
-    setAverages(avg);
-
-    const summary = getMachineHealthSummary(
+  // Update summary after setting averages
+  setHealthSummary(
+    getMachineHealthSummary(
       avg.temperature,
       avg.vibration,
-      avg.speed,
-      avg.noise
-    );
-    setHealthSummary(summary);
-  };
-
-
-  const limitData = (data, size = 10) => {
-  return {
-    timestamps: data.timestamps.slice(-size),
-    temperature: data.temperature.slice(-size),
-    vibration: data.vibration.slice(-size),
-    speed: data.speed.slice(-size),
-    current: data.current.slice(-size),
-    noise: data.noise.slice(-size)
-  };
+      avg.speed
+    )
+  );
 };
 
 
-  // useEffect(() => {
-  //   if (!dashboardData) return;
 
-  //   const interval = setInterval(() => {
-  //     const updated = { ...dashboardData };
-  //     updated.temperature = updated.temperature.map((val) => val + (Math.random() * 2 - 1));
-  //     updated.vibration = updated.vibration.map((val) => val + (Math.random() * 0.2 - 0.1));
-  //     updated.speed = updated.speed.map((val) => val + Math.floor(Math.random() * 20 - 10));
-  //     updated.current = updated.current.map((val) => val + (Math.random() * 0.2 - 0.1));
-  //     updated.noise = updated.noise.map((val) => val + Math.floor(Math.random() * 3 - 1));
-  //     setDashboardData(updated);
-  //     calculateAverages(updated);
-  //   }, 5000);
+  // -------------------------------
+  // MACHINE HEALTH SUMMARY
+  // -------------------------------
+  const getMachineHealthSummary = (temp, vib, speed) => {
+    const issues = [];
+    if (temp > 85) issues.push(`Temperature is critical at ${temp.toFixed(1)}°C.`);
+    else if (temp > 75) issues.push(`Temperature is high at ${temp.toFixed(1)}°C.`);
 
-  //   return () => clearInterval(interval);
-  // }, [dashboardData]);
+    if (speed > 1350) issues.push(`Speed is critical at ${speed.toFixed(0)} RPM.`);
+    else if (speed > 1200) issues.push(`Speed is high at ${speed.toFixed(0)} RPM.`);
 
+    if (vib > 7) issues.push(`Vibration is critical at ${vib.toFixed(1)} mm/s.`);
+    else if (vib > 5) issues.push(`Vibration is high at ${vib.toFixed(1)} mm/s.`);
+
+    if (issues.length === 0) {
+      return "✅ Machine is running normally. All parameters are within their expected ranges. No immediate action is required.";
+    }
+
+    const summary = issues.join(" ");
+    return `⚠️ Machine requires attention. ${summary} Please monitor closely and consider inspection.`;
+  };
+
+  // -------------------------------
+  // RENDER CHARTS
+  // -------------------------------
   const renderCharts = () => {
-    Object.values(charts || {}).forEach((chart) => {
-      if (chart && typeof chart.destroy === "function") chart.destroy();
-    });
-
-    const newCharts = {};
-
-    const createChart = (id, type, data, options) => {
-      const ctx = document.getElementById(id)?.getContext("2d");
-      if (ctx) newCharts[id] = new Chart(ctx, { type, data, options });
+    // Common Options
+    const commonOptions = {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: "top" },
+        // ✅ Add a refined tooltip configuration for clarity
+        tooltip: {
+          enabled: true,
+          backgroundColor: "rgba(0, 0, 0, 0.8)",
+          titleColor: "#fff",
+          bodyColor: "#fff",
+          titleFont: { size: 14, weight: "bold" },
+          bodyFont: { size: 12 },
+          padding: 12,
+          cornerRadius: 8,
+          displayColors: true, // Show color boxes
+          boxPadding: 3,
+        },
+        datalabels: { display: false }, // Hide datalabels
+      },
+      interaction: { intersect: false, mode: "index" },
+      scales: {
+        x: {
+          ticks: {
+            autoSkip: true, // ✅ Automatically skip labels to prevent overlap
+            maxRotation: 0, // ✅ Keep labels horizontal
+            minRotation: 0,
+          },
+        },
+        y: {
+          grid: {
+            color: "rgba(0, 0, 0, 0.05)", // Lighter grid lines
+            drawBorder: false,
+          },
+          ticks: {
+            autoSkip: true,
+            maxTicksLimit: 6,
+            padding: 10, // Add padding to y-axis labels
+          },
+        },
+      },
     };
 
-    createChart("lineChart", "line", {
-      labels: dashboardData.timestamps,
-      datasets: [
-        {
-          label: "Temperature (°C)",
-          data: dashboardData.temperature,
-          borderColor: "#e76f51",
-          backgroundColor: "rgba(231, 111, 81, 0.15)",
-          fill: true,
-          tension: 0.4,
-          pointBackgroundColor: dashboardData.temperature.map((val) =>
-            val > 75 ? "#dc2626" : "#e76f51"
-          ),
-        },
-        {
-          label: "Vibration (mm/s)",
-          data: dashboardData.vibration,
-          borderColor: "#2a9d8f",
-          backgroundColor: "rgba(42, 157, 143, 0.15)",
-          fill: true,
-          tension: 0.4,
-          pointBackgroundColor: dashboardData.vibration.map((val) =>
-            val > 5.0 ? "#dc2626" : "#2a9d8f"
-          ),
-        },
-      ],
-    }, {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: "bottom" },
-        title: { display: true, text: "Temperature & Vibration Trends", color: "#264653" },
-      },
-    });
+    // Common options for a professional and interactive look
+    
+    Object.values(charts).forEach((c) => c?.destroy?.());
+    const newCharts = {};
 
-    createChart("barChart", "bar", {
-      labels: dashboardData.timestamps,
-      datasets: [
-        {
-          label: "Speed (RPM)",
-          data: dashboardData.speed,
-          backgroundColor: dashboardData.speed.map((val) =>
-            val > 1200 ? "#dc2626" : "#4B9CD3"
-          ),
-          borderRadius: 8,
-          barThickness: 30,
-        },
-      ],
-    }, {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        title: { display: true, text: "Speed Over Time", color: "#264653" },
-        datalabels: {
-          color: "#333",
-          anchor: "end",
-          align: "top",
-          formatter: (v) => `${v} RPM`,
-        },
-      },
-    });
+    const createChart = (id, type, data, opt) => {
+      const ctx = document.getElementById(id)?.getContext("2d");
+      if (ctx) newCharts[id] = new Chart(ctx, { type, data, opt });
+    };
 
-    createChart("pieChart", "doughnut", {
-      labels: ["High Load", "Medium Load", "Low Load"],
-      datasets: [
-        {
-          label: "Machine Load",
-          data: [
-            dashboardData.speed.at(-1) % 40,
-            40,
-            20,
-          ],
-          backgroundColor: ["#10B981", "#F59E0B", "#EF4444"],
-          hoverOffset: 6,
-        },
-      ],
-    }, {
-      responsive: true,
-      maintainAspectRatio: false,
-      cutout: "60%",
-      plugins: {
-        legend: { position: "bottom" },
-        title: { display: true, text: "Machine Load Distribution", color: "#264653" },
+    // ✨ Gradient helper
+    const createGradient = (ctx, color1, color2) => {
+      const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+      gradient.addColorStop(0, color1);
+      gradient.addColorStop(1, color2);
+      return gradient;
+    };
+
+    // Get contexts for gradients
+    const lineCtx = document.getElementById("lineChart")?.getContext("2d");
+    const tempGradient = lineCtx ? createGradient(lineCtx, "rgba(231, 111, 81, 0.5)", "rgba(231, 111, 81, 0)") : "rgba(231,111,81,0.2)";
+    const vibGradient = lineCtx ? createGradient(lineCtx, "rgba(42, 157, 143, 0.5)", "rgba(42, 157, 143, 0)") : "rgba(42,157,143,0.2)";
+
+
+    // LINE: Temp + Vibration
+    createChart(
+      "lineChart",
+      "line",
+      {
+        labels: dashboardData.timestamps,
+        datasets: [
+          {
+            label: "Temperature (°C)",
+            data: dashboardData.temperature,
+            borderColor: "#e76f51",
+            backgroundColor: tempGradient, // ✨ Use gradient
+            fill: true,
+            tension: 0.4, // ✨ Smoother lines
+            pointRadius: 0, // ⚪ Hide points by default
+            pointHoverRadius: 6, // Show on hover
+            borderWidth: 2.5, // Thicker line
       },
-    });
+          {
+            label: "Vibration (mm/s)",
+            data: dashboardData.vibration,
+            borderColor: "#2a9d8f",
+            backgroundColor: vibGradient, // ✨ Use gradient
+            fill: true, // ✨ Smoother lines
+            tension: 0.4,
+            pointRadius: 0, // ⚪ Hide points by default
+            pointHoverRadius: 6, // Show on hover
+            borderWidth: 2.5, // Thicker line
+          },
+        ],
+      },
+      commonOptions
+    );
+
+    // BAR: Speed
+    createChart(
+      "barChart",
+      "bar",
+      {
+        labels: dashboardData.timestamps,
+        datasets: [
+          {
+            label: "Speed (RPM)",
+          data: dashboardData.speed.map(s => Math.round(s)), // Round values
+            backgroundColor: dashboardData.speed.map((s) =>
+              s > 1200 ? "#dc2626" : "#4B9CD3"
+            ),
+            maxBarThickness: 50, // 📊 Consistent bar width
+            borderRadius: 8,
+          },
+        ],
+      },
+      {
+        ...commonOptions,
+        plugins: {
+          ...commonOptions.plugins,
+          // ✅ Add datalabels to the bar chart
+          datalabels: {
+            display: true,
+            anchor: "end",
+            align: "top",
+            color: "#666",
+            font: { weight: "bold" },
+            formatter: (value) => Math.round(value), // Show rounded value on top
+          },
+        },
+      }
+    );
+    // PIE: Load Estimate
+    createChart(
+      "pieChart",
+      "doughnut",
+      {
+        labels: ["High Load", "Medium Load", "Low Load"],
+        datasets: [
+          {
+            data: [dashboardData.speed.at(-1) % 40, 40, 20],
+            backgroundColor: ["#10B981", "#F59E0B", "#EF4444"],
+          },
+        ],
+      },
+      {
+        responsive: true,
+        cutout: "60%",
+        plugins: {
+          legend: { position: "top" },
+          // ✅ Configure datalabels for the pie chart
+          datalabels: {
+            display: true,
+            formatter: (value, ctx) => {
+              const total = ctx.chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
+              const percentage = (value / total) * 100;
+              // ✅ Hide label if slice is too small
+              if (percentage < 10) return "";
+
+              return percentage.toFixed(0) + "%";
+            },
+            color: "#fff", // White text for better contrast
+          },
+        },
+      }
+    );
 
     setCharts(newCharts);
   };
 
   useEffect(() => {
-    if (!dashboardData) return;
-    renderCharts();
+    if (dashboardData) renderCharts();
   }, [dashboardData]);
 
-  const handleLogout = () => {
-    localStorage.removeItem("currentUser");
-    window.location.reload();
-  };
+  // -------------------------------
+const onDragStart = (e, chartId) => {
+  e.dataTransfer.setData("chartId", chartId);
+};
 
-  const onDragStart = (e, chartId) => e.dataTransfer.setData("chartId", chartId);
-  const onDragOver = (e) => e.preventDefault();
+const onDragOver = (e) => {
+  e.preventDefault();
+};
 
-  const onDrop = async (e) => {
+
+
+  // DRAG + DROP ANALYSIS
+  // -------------------------------
+const onDrop = async (e) => {
   e.preventDefault();
   const chartId = e.dataTransfer.getData("chartId");
   if (!chartId || !dashboardData) return;
@@ -337,353 +385,277 @@ useEffect(() => {
         temperature: dashboardData.temperature,
         speed: dashboardData.speed,
         vibration: dashboardData.vibration,
-        current: dashboardData.current,
-        noise: dashboardData.noise
       }
     };
 
     const res = await axios.post("http://localhost:5000/chat/analyze", payload);
+
+    // ⭐ SAVE ENTIRE RESPONSE
     setRecommendation(res.data);
 
-    if (res.data?.issue) {
-      const summary = `🧠 Recommendation:\n• Issue: ${res.data.issue}\n• Cause: ${res.data.cause}\n• Solution: ${res.data.solution}`;
-      window.chatbot?.say?.(summary);
+    // ⭐ SAVE OVERALL SUMMARY FROM BACKEND for dashboard
+    if (res.data.overall_summary) {
+      setHealthSummary(res.data.overall_summary);
     }
+
+    // ⭐ Chatbot speaks full recommendation from the new nested structure
+    if (res.data?.overall_summary) {
+      const { overall_summary, random_forest, isolation_forest } = res.data;
+
+      // Construct a more detailed message for the chatbot
+      const rf_msg = `Random Forest: ${random_forest.issue} - ${random_forest.solution}`;
+      const iso_msg = `Isolation Forest: ${isolation_forest.issue} - ${isolation_forest.solution}`;
+
+      const msg = `🧠 Analysis Complete:
+${overall_summary}
+
+${rf_msg}
+${iso_msg}`;
+
+      window.chatbot?.say?.(msg);
+    }
+
   } catch (err) {
-    console.error("Error fetching recommendation:", err);
-    setRecommendation({
-      error: true,
-      message: "⚠️ Failed to analyze chart. Check backend logs."
-    });
-    window.chatbot?.say?.("⚠️ I couldn't analyze the chart. Please try again.");
+    console.error("Error analyzing chart:", err);
+    alert("⚠️ Chatbot analysis failed. Check backend.");
   }
 };
 
-const generateLabels = (avg) => {
-  const label = (val, low, high, critical) =>
-    val >= critical ? "critical" :
-    val > high ? "high" :
-    val >= low ? "medium" :
-    "low";
 
-  return {
-    // 🌡 TEMPERATURE (°C)
-    temperature: label(avg.temperature, 65, 75, 85),
+  // ------------------------------------
+  // LABELS FOR COLAB
+  // ------------------------------------
+  const generateLabels = (avg) => {
+    const set = (v, low, high, crit) =>
+      v >= crit ? "critical" : v > high ? "high" : v >= low ? "medium" : "low";
 
-    // ⚙ SPEED (RPM)
-    speed: label(avg.speed, 1150, 1250, 1350),  // fixed critical threshold
-
-    // 📈 VIBRATION (mm/s)
-    vibration: label(avg.vibration, 3.0, 5.0, 7.0),
-
-    // 🔌 CURRENT (A) — fixed low threshold
-    current: label(avg.current, 3.5, 4.5, 5.0),
-
-    // 🔊 NOISE (dB) — fixed low threshold
-    noise: label(avg.noise, 70, 80, 90),
-  };
-};
-
-
-const handleSendToColab = async () => {
-  try {
-    const labels = generateLabels(averages);
-    const hasCritical = Object.values(labels).includes("critical");
-
-    // Prevent spam of repeated critical alerts
-    if (hasCritical && emailSent) {
-      console.warn("🚨 Critical alert already sent. Skipping duplicate email.");
-      return;
-    }
-
-    const payload = {
-      temperature: dashboardData.temperature,
-      speed: dashboardData.speed,
-      vibration: dashboardData.vibration,
-      current: dashboardData.current,
-      noise: dashboardData.noise,
-      email: currentUser?.email,
-      machine_id: selectedMachine,
-      labels: labels,
+    return {
+      temperature: set(avg.temperature, 65, 75, 85),
+      vibration: set(avg.vibration, 3, 5, 7),
+      speed: set(avg.speed, 1150, 1250, 1350),
     };
-
-    const res = await axios.post(
-      "https://spaviet-shawnta-commonly.ngrok-free.dev/process",
-      payload
-    );
-
-    setReport(res.data);
-    setAlerts(res.data.alerts || []);
-    setShutdown(res.data.shutdown);
-    setHealthSummary(res.data.health_summary || "");
-
-    // Disable button temporarily (for UI feedback)
-    setEmailSent(true);
-
-    // 🔥 Re-enable analyze button after 10 seconds
-    setTimeout(() => {
-      setEmailSent(false);
-    }, 10000);
-
-    if (hasCritical) {
-      console.log("🚨 Critical alert email triggered.");
-    }
-
-  } catch (err) {
-    console.error("Error sending data to Colab:", err);
-
-    // Re-enable analyze button if API fails
-    setEmailSent(false);
-  }
-};
-
-
-  const getMachineHealthSummary = (avgTemp, avgVibration, avgSpeed, avgNoise, threshold = 1200) => {
-    if (avgTemp > 75 && avgSpeed > threshold) {
-      return `⚠️ High temperature and speed detected. Inspect cooling systems and motor load to prevent wear.
-Consistently elevated readings may indicate thermal stress and overdrive conditions.
-This can reduce motor lifespan and increase energy consumption.
-Immediate inspection is advised to prevent long-term damage.`;
-    }
-
-    if (avgTemp > 75) {
-      return `⚠️ Temperature exceeds safe limits. Check for overheating, poor ventilation, or lubrication issues.
-Sustained high temperatures can degrade components and affect performance.
-Ensure cooling systems are functioning properly.
-Schedule a thermal inspection to avoid downtime.`;
-    }
-
-    if (avgSpeed > threshold) {
-      return `⚠️ Speed is above optimal range. Verify motor calibration and ensure load conditions are balanced.
-Excessive RPM may cause wear, imbalance, or noise.
-Monitor for signs of mechanical strain or instability.
-Adjust operational parameters to maintain safe speed.`;
-    }
-
-    if (avgVibration > 5.0) {
-      return `⚠️ Vibration levels are high. Inspect bearings, alignment, and structural integrity for faults.
-Elevated vibration may signal imbalance, looseness, or wear in rotating parts.
-If ignored, it can lead to mechanical failure or safety risks.
-A preventive maintenance check is strongly recommended.`;
-    }
-
-    if (avgNoise > 80) {
-      return `⚠️ Noise levels are elevated. Check for loose components, worn insulation, or misalignment.
-High noise may indicate mechanical stress or poor acoustic shielding.
-Inspect housing and motor mounts for vibration transfer.`;
-    }
-
-    return `✅ The machine is operating within safe parameters. All metrics are stable and below critical thresholds.
-No immediate action is required.
-Continue monitoring for any future deviations.
-System health is optimal at this time.`;
   };
 
-return (
-  <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 p-6">
-    {/* Header */}
-    <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-      
-      <div>
-        <h1 className="text-3xl font-bold text-gray-800">
-          Welcome, {currentUser?.name || "User"} 👋
-        </h1>
-        <p className="text-gray-600 mt-1">
-          Monitoring Dashboard for {companyName} | {locationName}
-        </p>
-      </div>
-      <button
-        onClick={handleLogout}
-        className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow"
-      >
-        Logout
-      </button>
-    </div>
- 
+  // ------------------------------------
+  // SEND TO COLAB / NGROK
+  // ------------------------------------
+  const handleSendToColab = async () => {
+    try {
+      const labels = generateLabels(averages);
 
-    {/* Alerts and Summary */}
-    {alerts.length > 0 && (
-      <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 my-4 rounded">
-        <p className="font-bold">⚠️ Alerts:</p>
-        <ul className="list-disc list-inside">
-          {alerts.map((alert, idx) => (
-            <li key={idx}>{alert}</li>
+      const res = await axios.post(
+        "https://spaviet-shawnta-commonly.ngrok-free.dev/process",
+        {
+          temperature: dashboardData.temperature,
+          vibration: dashboardData.vibration,
+          speed: dashboardData.speed,
+          email: currentUser?.email,
+          machine_id: selectedMachine,
+          labels,
+        }
+      );
+
+      setReport(res.data);
+      setAlerts(res.data.alerts || []);
+      setShutdown(res.data.shutdown || false);
+      setHealthSummary(res.data.health_summary || "");
+
+      setEmailSent(true);
+      setTimeout(() => setEmailSent(false), 8000);
+    } catch (err) {
+      console.error("Colab error", err);
+      setEmailSent(false);
+    }
+  };
+  
+
+  // -------------------------------
+  // UI START
+  // -------------------------------
+  return (
+    <div
+      className="min-h-screen bg-gray-100 p-6"
+      onDrop={onDrop}
+      onDragOver={(e) => e.preventDefault()}
+    >
+      {/* HEADER */}
+      <div className="flex justify-between mb-6">
+        <h1 className="text-3xl font-bold">Welcome {currentUser?.name}</h1>
+        <button
+          onClick={() => {
+            localStorage.removeItem("currentUser");
+            window.location.reload();
+          }}
+          className="px-4 py-2 bg-blue-600 text-white rounded"
+        >
+          Logout
+        </button>
+      </div>
+
+      {/* MACHINE SELECTOR */}
+      <div className="bg-white p-4 rounded shadow mb-6">
+        <label className="font-semibold">Select Machine</label>
+        <select
+          className="border rounded p-2 ml-2"
+          value={selectedMachine}
+          onChange={(e) => setSelectedMachine(e.target.value)}
+        >
+          <option value="">--Select--</option>
+          {machines.map((m) => (
+            <option value={m.name} key={m.id}>
+              {m.name}
+            </option>
           ))}
-        </ul>
-        {shutdown && (
-          <p className="mt-2 font-semibold text-yellow-800">
-            ⚠️ Multiple sensors exceeded thresholds. Please turn off the system for a few hours and restart later.
-          </p>
-        )}
+        </select>
       </div>
-    )}
 
-    {healthSummary && (
-      <div className="bg-gray-100 p-3 rounded shadow-sm mb-6">
-        <p className="text-sm text-gray-800 font-medium">
-          🩺 <strong>Health Summary:</strong> {healthSummary}
-        </p>
+      {/* PANELS */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+        <Panel title="First">
+          <GaugeCard label="Temperature" value={averages.temperature} />
+          <SliderControl label="Speed" value={speed} onChange={setSpeed} />
+        </Panel>
+
+        <Panel title="Second">
+          <GaugeCard label="Vibration" value={averages.vibration} />
+          <ColorPickerCard />
+        </Panel>
       </div>
-    )}
 
-    {/* Machine Selector */}
-    <div className="bg-white rounded-xl shadow-md p-5 mb-6">
-      <label className="font-semibold text-gray-700 block mb-2">Select Machine</label>
-      <select
-        value={selectedMachine}
-        onChange={(e) => setSelectedMachine(e.target.value)}
-        className="border p-2 rounded w-full md:w-1/3 focus:ring-2 focus:ring-blue-500"
-      >
-        <option value="">-- Select --</option>
-        {machines.map((m) => (
-          <option key={m.id} value={m.name}>{m.name}</option>
-        ))}
-      </select>
-    </div>
-
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-8 mb-6">
-  <Panel title="First">
-    {/* ✅ Paste here */}
-    <GaugeCard label="Temperature" value={averages.temperature} />
-    <SliderControl label="Speed" value={speed} onChange={(val) => setSpeed(val)} />
-  </Panel>
-
-  <Panel title="Second">
-    <GaugeCard label="Vibration" value={averages.vibration} />
-    <ColorPickerCard />
-  </Panel>
+      {/* CHARTS */}
+      {dashboardData && (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <div
+  className="bg-white rounded-xl shadow-md p-4 cursor-grab hover:shadow-lg"
+  draggable
+  onDragStart={(e) => onDragStart(e, "lineChart")}
+>
+  <canvas id="lineChart" style={{ width: "100%", height: "220px" }}></canvas>
 </div>
 
-    {/* Charts */}
-    {dashboardData && (
-      <>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-          <div
-            className="bg-white rounded-xl shadow-md p-4 cursor-grab hover:shadow-lg"
-            draggable
-            onDragStart={(e) => onDragStart(e, "lineChart")}
-          >
-            <canvas id="lineChart" style={{ width: "100%", height: "350px" }}></canvas>
+           <div
+  className="bg-white rounded-xl shadow-md p-4 cursor-grab hover:shadow-lg"
+  draggable
+  onDragStart={(e) => onDragStart(e, "barChart")}
+>
+  <canvas id="barChart" style={{ width: "100%", height: "220px" }}></canvas>
+</div>
+
           </div>
-          <div
-            className="bg-white rounded-xl shadow-md p-4 cursor-grab hover:shadow-lg"
-            draggable
-            onDragStart={(e) => onDragStart(e, "barChart")}
-          >
-            <canvas id="barChart" style={{ width: "100%", height: "350px" }}></canvas>
-          </div>
-        </div>
 
         <div
-          className="bg-white rounded-xl shadow-md p-4 mb-6 cursor-grab hover:shadow-lg"
-          draggable
-          onDragStart={(e) => onDragStart(e, "pieChart")}
-        >
-          <canvas id="pieChart" style={{ width: "100%", height: "250px" }}></canvas>
-        </div>
-
-        {/* Averages */}
-        <div className="bg-white rounded-xl shadow-md p-5 mb-6">
-          <h3 className="font-semibold text-gray-700 mb-4">Average Values</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {Object.entries(averages).map(([key, value]) => {
-              const level = generateLabels(averages)[key];
-              const badgeColor = {
-                critical: "bg-red-800 text-white",
-                high: "bg-red-500 text-white",
-                medium: "bg-yellow-400 text-black",
-                low: "bg-green-500 text-white",
-              }[level];
-
-              return (
-                <div key={key} className="bg-blue-50 text-center rounded-lg p-4 shadow hover:shadow-lg transition">
-                  <h4 className="text-blue-700 font-bold">{key.toUpperCase()}</h4>
-                  <p className={`text-lg mt-2 ${level === "critical" ? "text-red-800 font-extrabold" :
-                                                level === "high" ? "text-red-600 font-bold" :
-                                                level === "medium" ? "text-yellow-600 font-semibold" :
-                                                "text-gray-800"}`}>
-                    {value}
-                  </p>
-                  <span className={`mt-2 inline-block px-2 py-1 text-xs rounded-full ${badgeColor}`}>
-                    {level.toUpperCase()}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Analyze Button */}
-        <div className="text-center mb-6">
-          <button
-            onClick={handleSendToColab}
-            disabled={emailSent}
-            className={`px-5 py-2 rounded-lg shadow text-white ${
-              emailSent ? "bg-gray-400 cursor-not-allowed" : "bg-green-600 hover:bg-green-700"
-            }`}
-          >
-            {emailSent ? "Alert Sent" : "Analyze"}
-          </button>
-        </div>
-
-        {/* Report Section */}
-        {report && (
-          <div className="bg-white rounded-xl shadow-md p-5 mb-6">
-            <h3 className="font-semibold text-gray-700 mb-4">Machine Status Report</h3>
-            <p><strong>Status:</strong> {report.status}</p>
-            <p><strong>Avg Temp:</strong> {report.avg_temp}</p>
-            <p><strong>Avg Vibration:</strong> {report.avg_vibration}</p>
-            <p><strong>Avg Speed:</strong> {report.avg_speed}</p>
-            <p><strong>Avg Current:</strong> {report.avg_current}</p>
-            <p><strong>Avg Noise:</strong> {report.avg_noise}</p>
-
-            {/* Download Report */}
-            {report.report_url && (
-              <div className="mt-4">
-                <button
-                  onClick={() => {
-                    fetch(report.report_url, {
-                      headers: { "ngrok-skip-browser-warning": "true" }
-                    })
-                      .then(response => {
-                        if (!response.ok) throw new Error("Network response was not ok");
-                        return response.blob();
-                      })
-                      .then(blob => {
-                        const url = window.URL.createObjectURL(blob);
-                        const link = document.createElement("a");
-                        link.href = url;
-                        link.download = "Machine_Report.pdf";
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
-                        window.URL.revokeObjectURL(url);
-                      })
-                      .catch(err => console.error("Download failed:", err));
-                  }}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 inline-block"
-                >
-                  📄 Download PDF Report
-                </button>
-              </div>
-            )}
-
-            {/* Health Summary */}
-            {healthSummary && (
-              <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-                <strong>📝 Overall Health Summary:</strong>
-                <p style={{ whiteSpace: "pre-line" }}>{healthSummary}</p>
-              </div>
-            )}
-          </div>
-        )}
-      </>
-    )}
-
-    {recommendation && <RecommendationPanel data={recommendation} />}
-    <ChatWidget chartData={dashboardData} />
+  className="bg-white rounded-xl shadow-md p-4 mb-6 cursor-grab hover:shadow-lg flex items-center justify-center"
+  draggable
+  onDragStart={(e) => onDragStart(e, "pieChart")}
+  style={{ minHeight: "280px" }}
+>
+  <div style={{ width: "260px", height: "260px" }}>
+    <canvas id="pieChart"></canvas>
   </div>
-);
+</div>
+
+
+
+
+          {/* AVERAGES */}
+          <div className="bg-white p-5 rounded shadow mb-6">
+            <h3 className="font-semibold mb-4">Average Values</h3>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {Object.entries(averages).map(([key, val]) => {
+                const level = generateLabels(averages)[key];
+                const color =
+                  level === "critical"
+                    ? "bg-red-700 text-white"
+                    : level === "high"
+                    ? "bg-red-500 text-white"
+                    : level === "medium"
+                    ? "bg-yellow-400 text-black"
+                    : "bg-green-500 text-white";
+
+                return (
+                  <div key={key} className="p-4 bg-blue-50 rounded shadow">
+                    <h4 className="font-bold text-blue-700">{key.toUpperCase()}</h4>
+                    <p className="text-xl mt-2">{val}</p>
+                    <span className={`px-3 py-1 text-xs rounded-full mt-2 inline-block ${color}`}>
+                      {level.toUpperCase()}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ANALYZE BUTTON */}
+          <div className="text-center mb-6">
+            <button
+              onClick={handleSendToColab}
+              disabled={emailSent}
+              className={`px-6 py-2 text-white rounded-lg ${
+                emailSent ? "bg-gray-400" : "bg-green-600 hover:bg-green-700"
+              }`}
+            >
+              {emailSent ? "Analyzing..." : "Analyze"}
+            </button>
+          </div>
+
+          {/* REPORT */}
+          {report && (
+            <div className="bg-white p-5 rounded shadow mb-6">
+              <h3 className="font-semibold mb-4">Machine Status Report</h3>
+              <p><strong>Status:</strong> {report.status}</p>
+              <p><strong>Avg Temp:</strong> {report.avg_temp}</p>
+              <p><strong>Avg Vibration:</strong> {report.avg_vibration}</p>
+              <p><strong>Avg Speed:</strong> {report.avg_speed}</p>
+
+              {report.report_url && (
+               <button
+  className="px-4 py-2 bg-indigo-600 text-white rounded mt-4"
+  onClick={() => {
+    fetch(report.report_url, {
+      method: "GET",
+      headers: { "ngrok-skip-browser-warning": "true" }
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error("Failed downloading PDF");
+        return response.blob();
+      })
+      .then((blob) => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "Machine_Report.pdf";  // 👈 Forces download!
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+      })
+      .catch((err) => console.error("Download failed:", err));
+  }}
+>
+  📄 Download PDF Report
+</button>
+
+              )}
+
+            </div>
+          )}
+
+          {/* OVERALL SUMMARY */}
+          {healthSummary && (
+            <div className="bg-yellow-50 p-4 rounded-lg shadow mb-6">
+              <h3 className="font-semibold text-lg text-yellow-800 mb-2">🧾 Overall Summary</h3>
+              <p className="text-gray-800 whitespace-pre-line">{healthSummary}</p>
+            </div>
+          )}
+        </>
+      )}
+
+      {recommendation && <RecommendationPanel data={recommendation} />}
+      <ChatWidget chartData={dashboardData} />
+    </div>
+  );
 };
 
 export default Dashboard;
