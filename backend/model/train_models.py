@@ -1,82 +1,108 @@
 import pandas as pd
+import numpy as np
 import pickle
 import os
 from sklearn.ensemble import IsolationForest, RandomForestClassifier
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import classification_report
 
-# Load JSON dataset
-df = pd.read_json("../sensor_data.json")
+# -----------------------------
+# 1. Load dataset
+# -----------------------------
+DATA_PATH = os.path.abspath("../sensor_data_3params.json")
+df = pd.read_json(DATA_PATH)
 
-# Flatten nested 'labels' dictionary
-labels_df = pd.json_normalize(df["labels"])
-df = pd.concat([df.drop(columns=["labels"]), labels_df], axis=1)
+print("Loaded dataset with shape:", df.shape)
 
-# Remove duplicate columns
-df = df.loc[:, ~df.columns.duplicated()]
+# -----------------------------
+# 2. Clean & sanitize data
+# -----------------------------
+df["temperature"] = pd.to_numeric(df["temperature"], errors="coerce")
+df["vibration"]   = pd.to_numeric(df["vibration"], errors="coerce")
+df["speed"]       = pd.to_numeric(df["speed"], errors="coerce")
 
-# Print column names for debugging
-print("📋 Cleaned columns in dataset:", df.columns.tolist())
+# Remove negative values (fallback)
+df["temperature"] = df["temperature"].clip(lower=0)
+df["vibration"]   = df["vibration"].clip(lower=0)
+df["speed"]       = df["speed"].clip(lower=0)
 
-# Keep all 5 sensor features + condition + machine_id
-df = df[["temperature", "speed", "vibration", "current", "noise", "condition", "machine_id"]]
+# Drop rows with missing values
+df = df.dropna()
 
-# Validate required columns
-required_cols = ["temperature", "speed", "vibration", "current", "noise", "condition"]
-missing = [col for col in required_cols if col not in df.columns]
-if missing:
-    raise ValueError(f"❌ Missing columns in dataset: {missing}")
+# -----------------------------
+# 3. Auto-generate condition labels
+# -----------------------------
+def classify_row(row):
+    score = 0
+    if row["temperature"] > 75: score += 1
+    if row["vibration"] > 5: score += 1
+    if row["speed"] > 1500: score += 1
 
-# Encode 'speed' if it's categorical
-if pd.api.types.is_object_dtype(df["speed"]):
-    df["speed_encoded"] = LabelEncoder().fit_transform(df["speed"])
-    rf_features = ["temperature", "speed_encoded", "vibration", "current", "noise"]
-    iso_features = rf_features
-else:
-    rf_features = ["temperature", "speed", "vibration", "current", "noise"]
-    iso_features = rf_features
+    return "critical" if score >= 2 else "warning" if score == 1 else "normal"
 
-# Define absolute model directory path
-model_dir = os.path.abspath(os.path.join("..", "model"))
-os.makedirs(model_dir, exist_ok=True)
+df["condition"] = df.apply(classify_row, axis=1)
 
-# Isolation Forest (unsupervised anomaly detection)
-iso = IsolationForest(contamination=0.1, random_state=42)
-iso.fit(df[iso_features])
-with open(os.path.join(model_dir, "iso_model.pkl"), "wb") as f:
-    pickle.dump(iso, f)
-print("✅ iso_model.pkl saved successfully.")
+# -----------------------------
+# 4. Features & labels
+# -----------------------------
+features = ["temperature", "vibration", "speed"]
 
-# Encode 'condition' for supervised classification
+# Encode condition
 df["condition_encoded"] = LabelEncoder().fit_transform(df["condition"])
 
-# Prepare features and labels
-X = df[rf_features]
+X = df[features]
 y = df["condition_encoded"]
 
-# Train/test split
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+# -----------------------------
+# 5. Train-test split
+# -----------------------------
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
 
-# Save StandardScaler for backend normalization
+# -----------------------------
+# 6. Scale features
+# -----------------------------
 scaler = StandardScaler()
 scaler.fit(X_train)
-with open(os.path.join(model_dir, "multi_scaler.pkl"), "wb") as f:
-    pickle.dump(scaler, f)
-print("✅ multi_scaler.pkl saved successfully.")
 
-# Train Random Forest
-rf = RandomForestClassifier(n_estimators=100, random_state=42)
+# Save scaler in model folder
+MODEL_DIR = os.path.abspath(".")
+os.makedirs(MODEL_DIR, exist_ok=True)
+
+with open(os.path.join(MODEL_DIR, "scaler.pkl"), "wb") as f:
+    pickle.dump(scaler, f)
+
+print("✔ scaler.pkl saved.")
+
+# -----------------------------
+# 7. Train Random Forest
+# -----------------------------
+rf = RandomForestClassifier(n_estimators=120, random_state=42)
 rf.fit(X_train, y_train)
 
-# Save model
-with open(os.path.join(model_dir, "rf_model.pkl"), "wb") as f:
+with open(os.path.join(MODEL_DIR, "rf_model.pkl"), "wb") as f:
     pickle.dump(rf, f)
-print("✅ rf_model.pkl saved successfully.")
 
-# Evaluate model
+print("✔ rf_model.pkl saved.")
+
+# -----------------------------
+# 8. Train Isolation Forest (unsupervised anomaly detection)
+# -----------------------------
+iso = IsolationForest(contamination=0.1, random_state=42)
+iso.fit(X)
+
+with open(os.path.join(MODEL_DIR, "iso_model.pkl"), "wb") as f:
+    pickle.dump(iso, f)
+
+print("✔ iso_model.pkl saved.")
+
+# -----------------------------
+# 9. Evaluation
+# -----------------------------
 y_pred = rf.predict(X_test)
-print("📊 Classification Report:")
+print("\n📊 Classification Report:\n")
 print(classification_report(y_test, y_pred))
 
-print("🎉 Model training complete.")
+print("\n🎉 Training complete.\n")

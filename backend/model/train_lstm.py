@@ -6,46 +6,64 @@ from sklearn.preprocessing import MinMaxScaler
 from keras.models import Sequential
 from keras.layers import LSTM, Dense
 
-# Load JSON dataset
-df = pd.read_json("../sensor_data.json")
+# -----------------------------
+# Load dataset
+# -----------------------------
+DATA_PATH = os.path.abspath("../sensor_data_3params.json")
+df = pd.read_json(DATA_PATH)
 df = df.sort_values("timestamp")
 
-# Select all 5 features
-features = ["temperature", "speed", "vibration", "current", "noise"]
-data = df[features]
+# Select 3 features
+features = ["temperature", "vibration", "speed"]
+data = df[features].values
 
-# Scale features
+# -----------------------------
+# Scaling
+# -----------------------------
 scaler = MinMaxScaler()
-scaled_data = scaler.fit_transform(data)
+scaled = scaler.fit_transform(data)
 
+# Save scaler
+MODEL_DIR = os.path.abspath(".")
+os.makedirs(MODEL_DIR, exist_ok=True)
+
+with open(os.path.join(MODEL_DIR, "lstm_scaler.pkl"), "wb") as f:
+    pickle.dump(scaler, f)
+
+# -----------------------------
 # Create sequences
-def create_sequences(data, seq_len):
+# -----------------------------
+def create_sequences(data, seq_len=10):
     X, y = [], []
     for i in range(len(data) - seq_len):
         X.append(data[i:i+seq_len])
-        y.append(data[i+seq_len])  # Predict next 5-feature vector
+        y.append(data[i+seq_len])
     return np.array(X), np.array(y)
 
-seq_len = 5
-X, y = create_sequences(scaled_data, seq_len)
+seq_len = 10
+X, y = create_sequences(scaled, seq_len)
 
-# Reshape for LSTM: (samples, timesteps, features)
+# LSTM expects: (samples, timesteps, features)
 X = X.reshape((X.shape[0], seq_len, len(features)))
 
-# Build and train model
+# -----------------------------
+# Build LSTM model
+# -----------------------------
 model = Sequential()
-model.add(LSTM(64, input_shape=(seq_len, len(features))))
-model.add(Dense(len(features)))  # Output: temperature, speed, vibration, current, noise
+model.add(LSTM(64, return_sequences=False, input_shape=(seq_len, len(features))))
+model.add(Dense(len(features)))
 model.compile(optimizer="adam", loss="mse")
+
+# -----------------------------
+# Train model
+# -----------------------------
 model.fit(X, y, epochs=10, batch_size=32)
 
-# Define absolute model directory path
-model_dir = os.path.abspath(os.path.join("..", "model"))
-os.makedirs(model_dir, exist_ok=True)
+# -----------------------------
+# Save model
+# -----------------------------
+model_path = os.path.join(MODEL_DIR, "lstm_model.keras")
+model.save(model_path)
 
-# Save model and scaler
-model.save(os.path.join(model_dir, "lstm_model.keras"))
-with open(os.path.join(model_dir, "multi_scaler.pkl"), "wb") as f:
-    pickle.dump(scaler, f)
-
-print("✅ lstm_model.keras and multi_scaler.pkl saved successfully.")
+print("✔ lstm_model.keras saved.")
+print("🎉 LSTM Training complete.")
