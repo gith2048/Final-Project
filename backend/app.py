@@ -469,10 +469,11 @@ def analyze_chart():
     # FORECAST
     # ---------------------------
     try:
-        seq = np.array([[temp[-5+i], speed[-5+i], vib[-5+i]] for i in range(5)])
+        # The LSTM model was trained with a sequence length of 10.
+        seq = np.array([[temp[-10+i], speed[-10+i], vib[-10+i]] for i in range(10)])
         scaled = lstm_scaler.transform(seq) # Use original sequence for trend
-        pred = lstm_model.predict(scaled.reshape(1,5,3), verbose=0)[0]
-        inv = lstm_scaler.inverse_transform([pred])[0] # Get inverse transformed values
+        pred = lstm_model.predict(scaled.reshape(1, 10, 3), verbose=0)[0]
+        inv = lstm_scaler.inverse_transform([pred])[0]
         # ✅ Ensure no negative forecast values
         f_temp = max(0, float(inv[0]))
         f_speed = max(0, float(inv[1]))

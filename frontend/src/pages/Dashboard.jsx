@@ -513,12 +513,17 @@ ${iso_msg}`;
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
         <Panel title="First">
           <GaugeCard label="Temperature" value={averages.temperature} />
-          <SliderControl label="Speed" value={speed} onChange={setSpeed} />
+         
         </Panel>
 
         <Panel title="Second">
           <GaugeCard label="Vibration" value={averages.vibration} />
-          <ColorPickerCard />
+          
+        </Panel>
+
+
+        <Panel title="Third">
+          <GaugeCard label="Speed (RPM)" value={averages.speed} maxValue={2000} />
         </Panel>
       </div>
 
