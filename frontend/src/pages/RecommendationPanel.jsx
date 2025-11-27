@@ -1,107 +1,58 @@
+// src/pages/RecommendationPanel.jsx
 export default function RecommendationPanel({ data }) {
-  // No data OR backend returned an error → don't render panel
   if (!data || data.error) return null;
 
-  const modelLabels = {
-    lstm: "LSTM Forecast",
-    random_forest: "Random Forest Classification",
-    isolation_forest: "Isolation Forest Anomaly Detection",
+  // Normalize different response formats to a consistent object
+  const normalize = () => {
+    const out = { lstm: null, random_forest: null, isolation_forest: null, thresholds: data.thresholds || {}, overall_summary: data.overall_summary || "" };
+
+    if (data.lstm) out.lstm = data.lstm;
+    else if (data.forecast) out.lstm = { issue: "LSTM Forecast", forecast: data.forecast };
+
+    if (data.random_forest && typeof data.random_forest === "object") out.random_forest = data.random_forest;
+    else if (typeof data.random_forest === "number") {
+      const rf = data.random_forest;
+      const label = rf === 2 ? "Critical" : rf === 1 ? "Warning" : "Normal";
+      out.random_forest = { issue: label, pred: rf };
+    }
+
+    if (data.isolation_forest && typeof data.isolation_forest === "object") out.isolation_forest = data.isolation_forest;
+    else if (typeof data.isolation_forest === "number") {
+      const iso = data.isolation_forest;
+      out.isolation_forest = { issue: iso === -1 ? "Anomaly" : "Normal", pred: iso, score: data.iso_score };
+    }
+    return out;
   };
 
-  // 🔥 SAFE getSeverityColor — prevents crash if issue is missing
-  const getSeverityColor = (issue = "") => {
-    const text = issue.toLowerCase();
-    if (text.includes("critical") || text.includes("🚨"))
-      return "border-red-500";
-    if (text.includes("high") || text.includes("⚠️"))
-      return "border-yellow-500";
-    return "border-green-500";
-  };
-
-  // 🔥 SAFE forecast renderer
-  const renderForecast = (forecast) => {
-    if (!forecast) return null;
-
-    return (
-      <div className="mt-2 text-sm text-gray-700 space-y-1">
-        <p><strong>Forecast:</strong></p>
-        <ul className="ml-4 list-disc">
-          <li>Temperature: {forecast.temperature ?? "N/A"}°C</li>
-          <li>Speed: {forecast.speed ?? "N/A"}</li>
-          <li>Vibration: {forecast.vibration ?? "N/A"}</li>
-        </ul>
-      </div>
-    );
+  const obj = normalize();
+  const getColor = (issue = "") => {
+    const t = (issue || "").toLowerCase();
+    if (t.includes("critical") || t.includes("anomaly") || t.includes("🚨")) return "red";
+    if (t.includes("high") || t.includes("warning") || t.includes("⚠")) return "yellow";
+    return "green";
   };
 
   return (
-    <div className="space-y-6">
-
-      {/* 🔹 ML MODEL CARDS */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {Object.entries(data).map(([model, rec]) => {
-          // Skip these keys
-          if (
-            model === "thresholds" ||
-            model === "overall_summary" ||
-            model === "latest" ||
-            model === "levels" ||
-            model === "trends"
-          )
-            return null;
-
-          // Skip items that are not objects (avoid crash)
-          if (!rec || typeof rec !== "object") return null;
-
-          const issueText = rec.issue || "No issue detected";
-
-          return (
-            <div
-              key={model}
-              className={`bg-white p-4 rounded shadow border-l-4 ${getSeverityColor(
-                issueText
-              )}`}
-            >
-              <h3 className="font-bold text-lg mb-2">
-                {modelLabels[model] || model.replace("_", " ").toUpperCase()}
-              </h3>
-
-              <p><strong>Issue:</strong> {issueText}</p>
-
-              {rec.cause && (
-                <p><strong>Cause:</strong> {rec.cause}</p>
-              )}
-
-              <p><strong>Solution:</strong> {rec.solution || "No solution available"}</p>
-
-              {rec.forecast && renderForecast(rec.forecast)}
-
-              {rec.score !== undefined && (
-                <p className="mt-2">
-                  <strong>Anomaly Score:</strong> {rec.score}
-                </p>
-              )}
-            </div>
-          );
-        })}
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+      {[["LSTM", obj.lstm], ["Random Forest", obj.random_forest], ["Isolation Forest", obj.isolation_forest]].map(([title, block]) => {
+        if (!block) return null;
+        const color = getColor(block.issue);
+        return (
+          <div key={title} style={{ padding: 12, borderRadius: 8, background: "#fff", borderLeft: `6px solid ${color === "red" ? "#dc2626" : color === "yellow" ? "#f59e0b" : "#10b981"}` }}>
+            <h4 style={{ margin: 0 }}>{title}</h4>
+            <p style={{ margin: "6px 0" }}><strong>Issue:</strong> {block.issue}</p>
+            {block.cause && <p style={{ margin: "6px 0" }}><strong>Cause:</strong> {block.cause}</p>}
+            {block.solution && <p style={{ margin: "6px 0" }}><strong>Solution:</strong> {block.solution}</p>}
+            {block.forecast && <div><strong>Forecast:</strong><ul><li>Temp: {Number(block.forecast.temperature).toFixed(2)}°C</li><li>Vib: {Number(block.forecast.vibration).toFixed(2)}</li><li>Speed: {Number(block.forecast.speed).toFixed(2)}</li></ul></div>}
+            {block.score !== undefined && <p><strong>Score:</strong> {Number(block.score).toFixed(3)}</p>}
+          </div>
+        );
+      })}
+      {/* thresholds block */}
+      <div style={{ gridColumn: "1 / -1", padding: 12, background: "#f8fafc", borderRadius: 8 }}>
+        <h4>Sensor Status</h4>
+        <pre style={{ whiteSpace: "pre-wrap" }}>{obj.overall_summary}</pre>
       </div>
-
-      {/* 🔹 THRESHOLDS SECTION */}
-      {data.thresholds && typeof data.thresholds === "object" && (
-        <div className="bg-gray-50 p-4 rounded shadow">
-          <h4 className="font-semibold text-lg mb-2">📊 Sensor Status</h4>
-          <ul className="space-y-1">
-            {Object.entries(data.thresholds).map(([key, val]) => (
-              <li key={key}>
-                <strong>
-                  {key.charAt(0).toUpperCase() + key.slice(1)}:
-                </strong>{" "}
-                {typeof val === "string" ? val : JSON.stringify(val)}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
     </div>
   );
 }

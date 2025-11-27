@@ -1,4 +1,4 @@
-# app.py
+# app.py (patched)
 import os
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -12,7 +12,8 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash, check_password_hash
-import random, smtplib
+import random
+import smtplib
 from routes.predict import predict_bp
 from routes.chatbot import chatbot_bp
 import tensorflow as tf
@@ -22,6 +23,7 @@ from report_routes import report_bp
 import numpy as np
 import pandas as pd
 from email.mime.text import MIMEText
+import threading
 
 # ---------------------------
 # App & DB
@@ -42,14 +44,18 @@ MODEL_DIR = os.path.join(os.path.dirname(__file__), "model")
 def safe_load_pickle(path):
     try:
         with open(path, "rb") as f:
-            return pickle.load(f)
+            obj = pickle.load(f)
+            print(f"✅ Loaded: {os.path.basename(path)}")
+            return obj
+    except FileNotFoundError:
+        print(f"⚠️ File not found: {path}")
+        return None
     except Exception as e:
         print(f"❌ Failed to load {path}: {e}")
         return None
 
 iso_model = safe_load_pickle(os.path.join(MODEL_DIR, "iso_model.pkl"))
 rf_model = safe_load_pickle(os.path.join(MODEL_DIR, "rf_model.pkl"))
-# load the LSTM scaler (saved during training as lstm_scaler.pkl / lstm_scaler)
 lstm_scaler = safe_load_pickle(os.path.join(MODEL_DIR, "lstm_scaler.pkl"))
 
 # load LSTM if present
@@ -60,9 +66,13 @@ if os.path.exists(lstm_path):
         lstm_model = tf.keras.models.load_model(lstm_path)
         print("✅ LSTM model loaded:", lstm_path)
     except Exception as e:
+        lstm_model = None
         print(f"❌ Failed loading LSTM model: {e}")
 else:
     print("⚠️ No LSTM model file found at", lstm_path)
+
+# Thread-safety for TF
+lstm_lock = threading.Lock()
 
 # Print scaler expectations (best-effort)
 try:
@@ -70,9 +80,10 @@ try:
 except Exception:
     print("Scaler loaded but couldn't read n_features_in_ or scaler missing")
 
-# Register blueprints (keep original behavior)
+# Register blueprints (predict uses '/predict' inside its file; keep as-is)
 app.register_blueprint(predict_bp, url_prefix="/")
-app.register_blueprint(chatbot_bp)
+# IMPORTANT: register chatbot blueprint without extra prefix so '/chat' route matches frontend axios('/chat')
+app.register_blueprint(chatbot_bp)   # <- chatbot routes should be defined as '/chat' inside chatbot.py
 app.register_blueprint(report_bp)
 
 # ---------------------------
@@ -148,18 +159,12 @@ def load_raw_sensor_rows(path):
     return raw
 
 def make_machine_map_from_rows(rows):
-    """
-    Build a dict:
-      { "Machine_A": { timestamps: [...], temperature: [...], vibration: [...], speed: [...] }, ... }
-    Ensures values are numeric (floats) and timestamps are strings.
-    """
     mm = {}
     for row in rows:
         mid = row.get("machine_id") or row.get("machine") or "Unknown"
         if mid not in mm:
             mm[mid] = {"timestamps": [], "temperature": [], "vibration": [], "speed": []}
 
-        # timestamp string
         ts = row.get("timestamp")
         if isinstance(ts, (int, float)):
             ts = str(int(ts))
@@ -168,7 +173,6 @@ def make_machine_map_from_rows(rows):
         elif ts is None:
             ts = datetime.utcnow().isoformat()
 
-        # cast numeric, handle missing/invalid gracefully
         def to_float(x):
             try:
                 if x is None: return float("nan")
@@ -188,7 +192,7 @@ def make_machine_map_from_rows(rows):
         mm[mid]["vibration"].append(vib)
         mm[mid]["speed"].append(spd)
 
-    # replace NaN with 0 or interpolated values (simple fallback: forward-fill then back-fill then zeros)
+    # replace NaN with fill/zeros
     for mid, d in mm.items():
         for k in ("temperature", "vibration", "speed"):
             arr = d[k]
@@ -202,20 +206,12 @@ def make_machine_map_from_rows(rows):
                 for i in range(len(na)-1, -1, -1):
                     if np.isnan(na[i]) and i < len(na)-1:
                         na[i] = na[i+1]
-                # remaining NaNs -> zeros
                 na = np.nan_to_num(na, nan=0.0)
             d[k] = [float(x) for x in na.tolist()]
 
     return mm
 
 def downsample_arrays(ts, arrays_dict, max_points=1000):
-    """
-    Downsamples arrays keeping shape:
-      Input: ts: list timestamps, arrays_dict: {"temperature": [...], ...}
-      Output: {"timestamps": [...], "temperature": [...], ...}
-    If n <= max_points returns raw arrays.
-    Downsampling uses simple bucketing average.
-    """
     n = len(ts)
     if n <= max_points:
         return {"timestamps": ts, **arrays_dict}
@@ -235,7 +231,6 @@ def downsample_arrays(ts, arrays_dict, max_points=1000):
 # ---------------------------
 # Routes (mostly unchanged, plus robust /api/sensor-data and /chat/analyze)
 # ---------------------------
-
 @app.route('/')
 def home():
     return jsonify({"message": "Predictive Maintenance API Running 🚀"})
@@ -264,14 +259,20 @@ def login():
     user.otp = otp
     user.otp_expires = expiry
     db.session.commit()
+
+    smtp_user = os.environ.get("SMTP_USER") or "s9342902@gmail.com"
+    smtp_pass = os.environ.get("SMTP_PASS") or "ncjn fjwj kcwf ocda"  # move to env var in production
+
     try:
-        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server = smtplib.SMTP('smtp.gmail.com', 587, timeout=10)
         server.starttls()
-        server.login('s9342902@gmail.com', 'ncjn fjwj kcwf ocda')  # use env in prod
+        server.login(smtp_user, smtp_pass)
         message = f"Your login OTP is {otp}. It expires in 10 minutes."
-        server.sendmail('s9342902@gmail.com', user.email, message)
+        server.sendmail(smtp_user, user.email, message)
         server.quit()
     except Exception as e:
+        # Log but do not leak secrets
+        print("❌ SMTP send failed:", str(e))
         return jsonify({'message': 'Failed to send OTP', 'error': str(e)}), 500
     return jsonify({"message": "OTP sent to email", "email": user.email})
 
@@ -287,14 +288,19 @@ def forgot_password():
     user.otp = otp
     user.otp_expires = expiry
     db.session.commit()
+
+    smtp_user = os.environ.get("SMTP_USER") or "s9342902@gmail.com"
+    smtp_pass = os.environ.get("SMTP_PASS") or "ncjn fjwj kcwf ocda"
+
     try:
-        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server = smtplib.SMTP('smtp.gmail.com', 587, timeout=10)
         server.starttls()
-        server.login('s9342902@gmail.com', 'ncjn fjwj kcwf ocda')
+        server.login(smtp_user, smtp_pass)
         message = f"Your OTP for password reset is {otp}. It expires in 10 minutes."
-        server.sendmail('s9342902@gmail.com', email, message)
+        server.sendmail(smtp_user, email, message)
         server.quit()
     except Exception as e:
+        print("❌ SMTP send failed:", str(e))
         return jsonify({'message': 'Failed to send email', 'error': str(e)}), 500
     return jsonify({'message': 'OTP sent to email'})
 
@@ -355,7 +361,6 @@ def update_profile():
 
 @app.route('/api/dashboard-data', methods=['GET'])
 def dashboard_data():
-    # simple sample dashboard data (kept as you had before)
     labels = [f"Day {i}" for i in range(1, 11)]
     line = [random.randint(70, 100) for _ in range(10)]
     bar = [random.randint(0, 10) for _ in range(10)]
@@ -376,12 +381,10 @@ def dashboard_data():
     ]
     return jsonify({"labels": labels, "line": line, "bar": bar, "categories": categories, "contact_requests": contact_requests})
 
-
 @app.route('/machines', methods=['GET'])
 def get_machines():
     machines = Machine.query.all()
     return jsonify([{"id": m.id, "name": m.name, "location": m.location, "status": m.status} for m in machines])
-
 
 @app.route('/api/machine-summary', methods=['GET'])
 def machine_summary():
@@ -400,12 +403,9 @@ def machine_summary():
         ]
     })
 
-
-
 # ---------------------------
 # main analyze endpoint (updated to use 3 params)
 # ---------------------------
-# Replace existing analyze_chart with this implementation
 @app.route("/chat/analyze", methods=["POST"])
 def analyze_chart():
     import numpy as np
@@ -414,9 +414,6 @@ def analyze_chart():
     chart_type = payload.get("chartType")
     data = payload.get("data", {})
 
-    # ---------------------------
-    # SAFE EXTRACTION
-    # ---------------------------
     def safe(v):
         out = []
         for x in v or []:
@@ -430,7 +427,6 @@ def analyze_chart():
     speed = safe(data.get("speed"))
     vib = safe(data.get("vibration"))
 
-    # Validate
     if len(temp) < 3 or len(speed) < 3 or len(vib) < 3:
         return jsonify({
             "issue": "Not enough data",
@@ -438,9 +434,8 @@ def analyze_chart():
             "solution": "Collect more readings",
             "forecast": None,
             "summary": "No meaningful analysis possible due to insufficient data."
-        })
+        }), 400
 
-    # clean NaN
     def clean(a):
         a = np.array(a, float)
         for i in range(1, len(a)):
@@ -453,88 +448,110 @@ def analyze_chart():
     speed = clean(speed)
     vib = clean(vib)
 
-    # Ensure no negative values before analysis
     temp = [max(0, v) for v in temp]
     speed = [max(0, v) for v in speed]
     vib = [max(0, v) for v in vib]
 
-    # ✅ Analyze the most significant recent value (max), not just the last one.
-    # This ensures the analysis matches the chart visuals (e.g., a recent red spike).
     latest_temp = max(temp[-10:]) if temp else 0
     latest_speed = max(speed[-10:]) if speed else 0
     latest_vib = max(vib[-10:]) if vib else 0
-    latest_for_models = [latest_temp, latest_speed, latest_vib]
+    # Feature order for RF and ISO: [temperature, vibration, speed] (matches training)
+    latest_for_models = [latest_temp, latest_vib, latest_speed]
 
     # ---------------------------
-    # FORECAST
+    # FORECAST (LSTM) with thread lock
     # ---------------------------
     try:
-        # The LSTM model was trained with a sequence length of 10.
-        seq = np.array([[temp[-10+i], speed[-10+i], vib[-10+i]] for i in range(10)])
-        scaled = lstm_scaler.transform(seq) # Use original sequence for trend
-        pred = lstm_model.predict(scaled.reshape(1, 10, 3), verbose=0)[0]
-        inv = lstm_scaler.inverse_transform([pred])[0]
-        # ✅ Ensure no negative forecast values
-        f_temp = max(0, float(inv[0]))
-        f_speed = max(0, float(inv[1]))
-        f_vib = max(0, float(inv[2]))
-    except:
+        if lstm_model is not None and lstm_scaler is not None:
+            # Build sequence using available last 10 rows (or fallback)
+            # IMPORTANT: LSTM was trained with order [temperature, vibration, speed]
+            seq_len = 10
+            if len(temp) >= seq_len:
+                # Correct order: temperature, vibration, speed (matches training)
+                seq = np.array([[temp[-seq_len + i], vib[-seq_len + i], speed[-seq_len + i]] for i in range(seq_len)])
+                scaled = lstm_scaler.transform(seq)
+                with lstm_lock:
+                    pred = lstm_model.predict(scaled.reshape(1, seq_len, 3), verbose=0)[0]
+                inv = lstm_scaler.inverse_transform([pred])[0]
+                # Output order: temperature, vibration, speed
+                f_temp = max(0, float(inv[0]))
+                f_vib = max(0, float(inv[1]))
+                f_speed = max(0, float(inv[2]))
+            else:
+                f_temp, f_speed, f_vib = latest_for_models
+        else:
+            f_temp, f_speed, f_vib = latest_for_models
+    except Exception as e:
+        print("❌ LSTM predict error:", e)
         f_temp, f_speed, f_vib = latest_for_models
 
     # ---------------------------
     # RANDOM FOREST
     # ---------------------------
     try:
-        rf_pred = int(rf_model.predict([latest_for_models])[0])
-        if rf_pred == 1:
-            rf_issue = "Abnormal (Alert)"
-            rf_cause = "The machine's operating signature matches known failure patterns."
-            rf_solution = "An immediate inspection is recommended to prevent potential failure."
+        if rf_model is not None:
+            rf_pred = int(rf_model.predict([latest_for_models])[0])
+            if rf_pred == 1:
+                rf_issue = "Abnormal (Alert)"
+                rf_cause = "The machine's operating signature matches known failure patterns."
+                rf_solution = "An immediate inspection is recommended to prevent potential failure."
+            else:
+                rf_issue = "Normal"
+                rf_cause = "The machine's operational signature appears healthy and stable."
+                rf_solution = "Continue with standard monitoring procedures."
         else:
-            rf_issue = "Normal"
-            rf_cause = "The machine's operational signature appears healthy and stable."
-            rf_solution = "Continue with standard monitoring procedures."
-    except:
+            rf_pred = None
+            rf_issue = "RF Model not loaded"
+            rf_cause = "Model file missing"
+            rf_solution = "Retrain and place rf_model.pkl in model directory."
+    except Exception as e:
         rf_pred = None
         rf_issue = "RF Model Error"
-        rf_cause = "Shape mismatch"
+        rf_cause = f"Error: {str(e)}"
         rf_solution = "Retrain RF model."
 
     # ---------------------------
     # ISOLATION FOREST
     # ---------------------------
     try:
-        iso_pred = int(iso_model.predict([latest_for_models])[0])
-        iso_score = float(iso_model.decision_function([latest_for_models])[0])
-        if iso_pred == -1:
-            # ✅ Categorize anomaly severity based on score
-            if iso_score < -0.1:
-                iso_issue = "Critical Sudden Change"
-            elif iso_score < -0.05:
-                iso_issue = "High Sudden Change"
+        if iso_model is not None:
+            iso_pred = int(iso_model.predict([latest_for_models])[0])
+            iso_score = float(iso_model.decision_function([latest_for_models])[0])
+            if iso_pred == -1:
+                if iso_score < -0.1:
+                    iso_issue = "Critical Sudden Change"
+                elif iso_score < -0.05:
+                    iso_issue = "High Sudden Change"
+                else:
+                    iso_issue = "Medium Sudden Change"
+                iso_cause = f"A sudden, unexpected deviation was detected in sensor readings (score: {iso_score:.2f})."
+                iso_solution = "Investigate the machine immediately for the source of the sudden change."
             else:
-                iso_issue = "Medium Sudden Change"
-            
-            iso_cause = f"A sudden, unexpected deviation was detected in sensor readings (score: {iso_score:.2f}). This often points to an abrupt event like a component jam, load shock, or sensor malfunction."
-            iso_solution = "Investigate the machine immediately for the source of the sudden change. Check for any unusual noises or obstructions."
+                iso_issue = "Low (No Sudden Changes)"
+                iso_cause = "Sensor values are within the expected operational distribution."
+                iso_solution = "Continue monitoring."
         else:
-            iso_issue = "Low (No Sudden Changes)"
-            iso_cause = "Sensor values are within the expected operational distribution, indicating stable performance."
-            iso_solution = "The machine is operating smoothly without any sudden anomalies."
-    except:
+            iso_pred = None
+            iso_score = None
+            iso_issue = "ISO Model not loaded"
+            iso_cause = "Model file missing"
+            iso_solution = "Retrain and place iso_model.pkl in model directory."
+    except Exception as e:
         iso_pred = None
         iso_score = None
         iso_issue = "ISO Model Error"
-        iso_cause = "Shape mismatch"
+        iso_cause = f"Error: {str(e)}"
         iso_solution = "Retrain ISO model."
 
     # ---------------------------
     # TREND
     # ---------------------------
     def trend(a):
-        a, b, c = a[-3:]
-        if a < b < c: return "rising"
-        if a > b > c: return "falling"
+        if len(a) < 3:
+            return "stable"
+        a1, b1, c1 = a[-3:]
+        if a1 < b1 < c1: return "rising"
+        if a1 > b1 > c1: return "falling"
         return "stable"
 
     t_temp = trend(temp)
@@ -549,9 +566,7 @@ def analyze_chart():
     causes = []
     solutions = []
 
-    # Chart-specific analysis
     if chart_type == "lineChart":
-        # Focus on Temperature and Vibration
         summary_parts.append(f"Analyzing Temperature and Vibration. Recent peak values are {latest_temp:.1f}°C and {latest_vib:.1f} mm/s.")
         if latest_temp > 85:
             issues.append("Critical Temperature")
@@ -576,7 +591,6 @@ def analyze_chart():
             summary_parts.append(f"⚠️ Vibration is high at {latest_vib:.1f} mm/s.")
 
     elif chart_type == "barChart":
-        # Focus on Speed
         summary_parts.append(f"Analyzing Speed. Recent peak RPM is {latest_speed:.0f}.")
         if latest_speed > 1350:
             issues.append("Critical Speed")
@@ -592,7 +606,6 @@ def analyze_chart():
             summary_parts.append("✅ Speed has remained within the normal operating range.")
 
     elif chart_type == "pieChart":
-        # Focus on Load (inferred from speed)
         summary_parts.append(f"Analyzing estimated machine load based on recent peak speed of {latest_speed:.0f} RPM.")
         if latest_speed > 1200:
             issues.append("High Machine Load")
@@ -610,10 +623,9 @@ def analyze_chart():
             solutions.append("This is a good time for routine checks if needed.")
             summary_parts.append("✅ Machine is operating under a light load.")
     else:
-        # Fallback to a general summary if chart type is unknown
         summary_parts.append("Performing a general health check.")
         if not issues:
-             summary_parts.append("All systems appear normal.")
+            summary_parts.append("All systems appear normal.")
 
     if not issues:
         summary = "✅ Machine is running normally. All sensor values are within their expected ranges. No action is required."
@@ -658,7 +670,6 @@ def analyze_chart():
     })
 
 
-
 # ---------------------------
 # Endpoint to return grouped sensor-data per-machine (frontend-friendly)
 # ---------------------------
@@ -671,7 +682,6 @@ def api_sensor_data():
         raw_rows = load_raw_sensor_rows(sensor_file)
         machine_map = make_machine_map_from_rows(raw_rows)
 
-        # Downsample each machine to at most 1000 points (avoids huge payloads)
         final_output = {}
         for mid, d in machine_map.items():
             final_output[mid] = downsample_arrays(d["timestamps"], {
@@ -693,9 +703,9 @@ def add_sensor():
     try:
         new_entry = SensorData(
             machine_id=data['machine_id'],
-            temperature=data['temperature'],
-            vibration=data['vibration'],
-            speed=data['speed']
+            temperature=float(data['temperature']),
+            vibration=float(data['vibration']),
+            speed=float(data['speed'])
         )
         db.session.add(new_entry)
         db.session.commit()
@@ -708,13 +718,9 @@ def get_logs():
     logs = MaintenanceLog.query.all()
     return jsonify([{"machine_id": l.machine_id, "issue": l.issue_detected, "action": l.action_taken} for l in logs])
 
-# ------- report / process / download endpoints left unchanged from your original app (if present) -------
+# ------- report / process / download endpoints unchanged -------
 @app.route("/process", methods=["POST"])
 def process_data():
-    """
-    Keep your original processing behavior but adapted to 3 params.
-    This endpoint replicates previous behavior but uses temp/speed/vibration only.
-    """
     data = request.json or {}
     temp = data.get("temperature", [])
     speed = data.get("speed", [])
@@ -754,7 +760,6 @@ def process_data():
     elif avg_vibration > 5.0:
         recommendation = "⚠️ Vibration exceeds safe limits. Inspect bearings and alignment."
 
-    # keep PDF generation minimal for 3 params
     pdf_path = "report.pdf"
     c = canvas.Canvas(pdf_path, pagesize=A4)
     c.setFont("Helvetica-Bold", 16)

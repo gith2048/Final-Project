@@ -1,150 +1,164 @@
 # routes/predict.py
-from flask import Blueprint, request, jsonify
-import pickle
+from flask import Blueprint, request, jsonify, current_app
 import numpy as np
 import pandas as pd
-from keras.models import load_model
-from models.machine_data import MachineData
-from extensions import db
 import os
+import pickle
+from keras.models import load_model
+from extensions import db
+from models.machine_data import MachineData
 
 predict_bp = Blueprint("predict", __name__)
 
+# These model files live under <project>/model
 MODEL_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "model")
 
-# -----------------------------
-# Safe Loader
-# -----------------------------
-def load_pickle(path):
+def safe_load_pickle(path):
     try:
         with open(path, "rb") as f:
             return pickle.load(f)
     except Exception as e:
-        print(f"Failed loading {path}: {e}")
+        print("Failed to load", path, e)
         return None
 
-# -----------------------------
-# Load MODELS (3-parameter versions)
-# -----------------------------
-iso_model = load_pickle(os.path.join(MODEL_DIR, "iso_model.pkl"))
-rf_model = load_pickle(os.path.join(MODEL_DIR, "rf_model.pkl"))
+# load scalers and models (if not loaded from app)
+scaler = safe_load_pickle(os.path.join(MODEL_DIR, "scaler.pkl"))
+lstm_scaler = safe_load_pickle(os.path.join(MODEL_DIR, "lstm_scaler.pkl"))
+rf_model = safe_load_pickle(os.path.join(MODEL_DIR, "rf_model.pkl"))
+iso_model = safe_load_pickle(os.path.join(MODEL_DIR, "iso_model.pkl"))
+label_encoder = safe_load_pickle(os.path.join(MODEL_DIR, "label_encoder.pkl"))
 
-# FIXED — load the correct scaler
-multi_scaler = load_pickle(os.path.join(MODEL_DIR, "lstm_scaler.pkl"))
-
-# LSTM model
 lstm_path = os.path.join(MODEL_DIR, "lstm_model.keras")
-lstm_model = load_model(lstm_path) if os.path.exists(lstm_path) else None
+lstm_model = None
+if os.path.exists(lstm_path):
+    try:
+        lstm_model = load_model(lstm_path)
+    except Exception as e:
+        print("Failed to load LSTM:", e)
 
-# -----------------------------
-# Thresholds
-# -----------------------------
-TEMP_THRESHOLD = 70.0
-VIBRATION_THRESHOLD = 5.0
-SPEED_THRESHOLD = 1200
+SEQ_LEN = 10
 
-# -----------------------------
-# Summary Generator
-# -----------------------------
-def generate_overall_summary(temp, vib, speed, next_temp, rf_result, iso_result):
+def feature_row(temp, vib, speed):
+    # consistent ordering: temperature, vibration, speed
+    return np.array([[float(temp), float(vib), float(speed)]])
 
-    if vib > VIBRATION_THRESHOLD:
-        return "⚠️ High vibration detected. Inspect bearings & alignment."
+def model_predict(temp, vib, speed, sequence):
+    # Prepare raw feature row and scaled row
+    raw_row = feature_row(temp, vib, speed)               # shape (1,3)
+    scaled_row = scaler.transform(raw_row) if scaler is not None else raw_row
 
-    if speed > SPEED_THRESHOLD:
-        return "⚠️ Speed exceeds optimal range. Check calibration & load."
+    # Random Forest (trained on scaled data)
+    rf_pred = None
+    rf_label = None
+    try:
+        rf_pred = int(rf_model.predict(scaled_row)[0])
+        rf_label = label_encoder.inverse_transform([rf_pred])[0] if label_encoder is not None else rf_pred
+    except:
+        rf_pred = None
+        rf_label = None
 
-    if next_temp > TEMP_THRESHOLD:
-        return "⚠️ Forecast shows overheating. Inspect cooling system."
+    # Isolation Forest (trained on scaled data)
+    iso_pred = None
+    iso_score = None
+    try:
+        iso_pred = int(iso_model.predict(scaled_row)[0])
+        iso_score = float(iso_model.decision_function(scaled_row)[0])
+    except:
+        iso_pred = None
+        iso_score = None
 
-    if rf_result == 1:
-        return "⚠️ Random Forest indicates high failure risk."
-
-    if iso_result == -1:
-        return "⚠️ Isolation Forest detected anomaly."
-
-    return "✅ Machine operating safely."
-
-# -----------------------------
-# PREDICT ENDPOINT (3 parameters only)
-# -----------------------------
-@predict_bp.route("/predict", methods=["POST"])
-def predict_all():
-    data = request.json
-
-    temp = float(data["temperature"])
-    speed = float(data["speed"])
-    vibration = float(data["vibration"])
-
-    sequence = data["sequence"]      # last 5 readings, shape (5,3)
-
-    # ===============================================
-    # Isolation Forest
-    # ===============================================
-    features = pd.DataFrame([{
-        "temperature": temp,
-        "speed": speed,
-        "vibration": vibration
-    }])
-
-    iso_result = int(iso_model.predict(features)[0])
-    iso_score = float(iso_model.decision_function(features)[0])
-
-    # ===============================================
-    # Random Forest
-    # ===============================================
-    rf_result = int(rf_model.predict(features)[0])
-
-    # ===============================================
     # LSTM Forecast
-    # ===============================================
-    seq = np.array(sequence).astype(float)
-    scaled = multi_scaler.transform(seq)
+    f_temp, f_vib, f_speed = float(temp), float(vib), float(speed)
+    try:
+        seq = np.array(sequence, dtype=float)
+        if seq.shape == (SEQ_LEN, 3):
+            seq_scaled = lstm_scaler.transform(seq)
+            X = seq_scaled.reshape(1, SEQ_LEN, 3)
+            pred_scaled = lstm_model.predict(X, verbose=0)[0]
+            pred = lstm_scaler.inverse_transform(pred_scaled.reshape(1,3))[0]
+            f_temp, f_vib, f_speed = float(pred[0]), float(pred[1]), float(pred[2])
+    except Exception as e:
+        # fallback: use latest values
+        print("LSTM predict error:", e)
 
-    X = scaled.reshape(1, scaled.shape[0], scaled.shape[1])
-    pred = lstm_model.predict(X, verbose=0)[0]
-
-    inv = multi_scaler.inverse_transform([pred])[0]
-
-    next_temp, next_speed, next_vibration = float(inv[0]), float(inv[1]), float(inv[2])
-
-    # ===============================================
-    # Final Response
-    # ===============================================
+    # build unified response (structured blocks)
     response = {
-        "forecast": {
-            "temperature": next_temp,
-            "speed": next_speed,
-            "vibration": next_vibration
+        "overall_summary": None,  # filled by /chat/analyze if needed
+        "lstm": {
+            "issue": "LSTM Forecast",
+            "cause": "Predicted next-cycle values based on recent trend",
+            "solution": "Use forecast to anticipate maintenance",
+            "forecast": {"temperature": f_temp, "vibration": f_vib, "speed": f_speed}
         },
-        "random_forest": rf_result,
-        "isolation_forest": iso_result,
-        "iso_score": iso_score,
-        "thresholds": {
-            "temperature": "High" if temp > TEMP_THRESHOLD else "Normal",
-            "speed": "High" if speed > SPEED_THRESHOLD else "Normal",
-            "vibration": "High" if vibration > VIBRATION_THRESHOLD else "Normal"
+        "random_forest": {
+            "pred": rf_pred,
+            "label": rf_label,
+            "issue": ("Critical" if rf_label == "critical" else "Warning" if rf_label == "warning" else "Normal"),
+            "cause": None,
+            "solution": None
         },
-        "overall_summary": generate_overall_summary(
-            temp, vibration, speed, next_temp, rf_result, iso_result
-        )
+        "isolation_forest": {
+            "pred": iso_pred,
+            "score": iso_score,
+            "issue": ("Anomaly" if iso_pred == -1 else "Normal"),
+            "cause": None,
+            "solution": None
+        },
+        "thresholds": {},
+        "trends": {}
     }
+    return response
 
-    # Save to DB
-    entry = MachineData(
-        temperature=temp,
-        speed=speed,
-        vibration=vibration,
-        forecast_temperature=next_temp,
-        forecast_speed=next_speed,
-        forecast_vibration=next_vibration,
-        failure_risk=rf_result,
-        anomaly_score=iso_score,
-        anomaly_flag=(iso_result == -1),
-        summary=response["overall_summary"]
-    )
-
-    db.session.add(entry)
-    db.session.commit()
-
-    return jsonify(response)
+@predict_bp.route("/predict", methods=["POST"])
+def predict_route():
+    payload = request.json or {}
+    # accept either flat latest values and sequence or nested chartData
+    if "chartData" in payload:
+        chart = payload["chartData"]
+        temp = chart["temperature"][-1]
+        vib = chart["vibration"][-1]
+        speed = chart["speed"][-1]
+        # build sequence from chart if available
+        seq_arr = []
+        t = chart["temperature"][-SEQ_LEN:]
+        v = chart["vibration"][-SEQ_LEN:]
+        s = chart["speed"][-SEQ_LEN:]
+        if len(t) == SEQ_LEN:
+            seq_arr = [[t[i], v[i], s[i]] for i in range(SEQ_LEN)]
+        else:
+            seq_arr = payload.get("sequence", [])
+    else:
+        temp = payload.get("temperature")
+        vib = payload.get("vibration")
+        speed = payload.get("speed")
+        seq_arr = payload.get("sequence", [])
+    try:
+        result = model_predict(temp, vib, speed, seq_arr)
+        # thresholds (frontend convenience)
+        result["thresholds"] = {
+            "temperature": "High" if float(temp) > 75 else "Normal",
+            "vibration": "High" if float(vib) > 5 else "Normal",
+            "speed": "High" if float(speed) > 1200 else "Normal"
+        }
+        # Save to DB (optional): create MachineData entry
+        try:
+            entry = MachineData(
+                temperature=float(temp),
+                speed=float(speed),
+                vibration=float(vib),
+                forecast_temperature=float(result["lstm"]["forecast"]["temperature"]),
+                forecast_speed=float(result["lstm"]["forecast"]["speed"]),
+                forecast_vibration=float(result["lstm"]["forecast"]["vibration"]),
+                failure_risk=int(result["random_forest"]["pred"]) if result["random_forest"]["pred"] is not None else None,
+                anomaly_score=float(result["isolation_forest"]["score"]) if result["isolation_forest"]["score"] is not None else None,
+                anomaly_flag=(result["isolation_forest"]["pred"] == -1),
+                summary=result["overall_summary"] or ""
+            )
+            db.session.add(entry)
+            db.session.commit()
+        except Exception:
+            # DB optional, keep inference resilient
+            pass
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500

@@ -1,132 +1,96 @@
+# routes/chatbot.py
 from flask import Blueprint, request, jsonify
 import requests
+import os
 
 chatbot_bp = Blueprint("chatbot", __name__)
 
-# ----------------------------------------
-# SIMPLE INTENT DETECTION
-# ----------------------------------------
+PREDICT_URL = "http://localhost:5000/predict"
+
 def detect_intent(message):
-    msg = message.lower()
-    if "anomaly" in msg or "abnormal" in msg:
-        return "anomaly"
-    elif "failure" in msg or "risk" in msg or "breakdown" in msg:
-        return "failure"
-    elif "forecast" in msg or "predict" in msg or "temperature" in msg:
-        return "forecast"
-    elif "help" in msg or "what can you do" in msg:
-        return "help"
+    msg = (message or "").lower()
+    if any(w in msg for w in ["anomaly", "abnormal"]): return "anomaly"
+    if any(w in msg for w in ["failure", "risk", "breakdown"]): return "failure"
+    if any(w in msg for w in ["forecast", "predict", "temperature", "vibration", "speed"]): return "forecast"
+    if any(w in msg for w in ["recommend", "suggest"]): return "recommend"
+    if any(w in msg for w in ["help"]): return "help"
     return "unknown"
 
-
-# ----------------------------------------
-# MAIN CHAT ENDPOINT
-# ----------------------------------------
-@chatbot_bp.route("/chat", methods=["POST"])
+@chatbot_bp.route("/", methods=["POST"])
 def chat():
-    message = request.json.get("message", "")
+    payload = request.json or {}
+    message = payload.get("message", "")
+    chartData = payload.get("chartData") or payload.get("chart") or None
+
     intent = detect_intent(message)
 
-    # Dummy real-time sample values
-    sample_payload = {
-        "temperature": 70,
-        "vibration": 4.5,
-        "speed": 1250,
-        "sequence": [
-            [65, 1200, 4.2],
-            [66, 1210, 4.3],
-            [67, 1225, 4.4],
-            [68, 1230, 4.6],
-            [69, 1240, 4.7]
-        ]
-    }
+    # If chartData exists, construct predict payload; else require sequence + latest
+    predict_payload = {}
+    if chartData:
+        predict_payload["chartData"] = chartData
+    else:
+        # allow directly sent sequence/latest values
+        predict_payload["temperature"] = payload.get("temperature")
+        predict_payload["vibration"] = payload.get("vibration")
+        predict_payload["speed"] = payload.get("speed")
+        predict_payload["sequence"] = payload.get("sequence", [])
 
-    # ----------------------------------------
-    # ANOMALY CHECK — Isolation Forest
-    # ----------------------------------------
+    # call the predict endpoint
+    try:
+        res = requests.post(PREDICT_URL, json=predict_payload, timeout=5)
+        result = res.json()
+    except Exception as e:
+        return jsonify({"response": "❌ Prediction engine is unavailable."})
+
+    # Build natural language response depending on intent
+    # Always include summary + structured recommendations
+    lstm_f = result.get("lstm", {}).get("forecast", {})
+    rf = result.get("random_forest", {})
+    iso = result.get("isolation_forest", {})
+    thresholds = result.get("thresholds", {})
+
+    # Build a succinct summary
+    summary_lines = []
+    summary_lines.append(result.get("overall_summary") or "Machine health summary:")
+
+    # Temperature note
+    summary_lines.append(f"Temperature (latest): {thresholds.get('temperature','N/A')} - {lstm_f.get('temperature', 'N/A'):.2f}°C" if lstm_f.get("temperature") is not None else f"Temperature: {thresholds.get('temperature','N/A')}")
+
+    # RF & ISO quick notes
+    rf_label = rf.get("label") or ("critical" if rf.get("pred")==2 else "warning" if rf.get("pred")==1 else "normal")
+    iso_note = "Anomaly detected" if iso.get("pred") == -1 else "No anomaly"
+
+    # Intent-specific responses
     if intent == "anomaly":
-        try:
-            res = requests.post(
-                "http://localhost:5000/predict",
-                json=sample_payload
-            )
-            result = res.json()["isolation_forest"]
+        response = f"🔎 Anomaly Check: {iso_note}. Isolation score: {iso.get('score'):.3f}." if iso.get('score') is not None else f"🔎 Anomaly Check: {iso_note}."
+        return jsonify({"response": response, "detail": result})
 
-            if result["anomaly"] == -1:
-                return jsonify({
-                    "response": "⚠️ Anomaly detected! Sensor pattern deviates from expected behavior."
-                })
-            else:
-                return jsonify({
-                    "response": "✅ No anomaly detected. All sensor patterns look normal."
-                })
-        except:
-            return jsonify({"response": "❌ Unable to process anomaly check. Backend not reachable."})
-
-    # ----------------------------------------
-    # FAILURE RISK — Random Forest
-    # ----------------------------------------
     if intent == "failure":
-        try:
-            res = requests.post(
-                "http://localhost:5000/predict",
-                json=sample_payload
-            )
-            result = res.json()["random_forest"]["failure_risk"]
+        if rf.get("pred") == 2:
+            return jsonify({"response": f"🚨 Random Forest indicates CRITICAL risk ({rf_label}). Immediate inspection recommended.", "detail": result})
+        if rf.get("pred") == 1:
+            return jsonify({"response": f"⚠️ Random Forest indicates WARNING ({rf_label}). Schedule inspection soon.", "detail": result})
+        return jsonify({"response": "🟢 Random Forest indicates normal operation.", "detail": result})
 
-            if result == 1:
-                return jsonify({
-                    "response": "⚠️ High failure risk detected! Recommend immediate inspection."
-                })
-            else:
-                return jsonify({
-                    "response": "🟢 Failure risk is low. Machine is operating normally."
-                })
-        except:
-            return jsonify({"response": "❌ Unable to calculate failure risk."})
-
-    # ----------------------------------------
-    # FORECAST — LSTM prediction
-    # ----------------------------------------
     if intent == "forecast":
-        try:
-            res = requests.post(
-                "http://localhost:5000/predict",
-                json=sample_payload
-            )
-            forecast = res.json()["lstm"]["forecast"]
+        return jsonify({"response": (f"📈 Forecast (next cycle): Temp {lstm_f.get('temperature'):.2f}°C, Vib {lstm_f.get('vibration'):.2f} mm/s, Speed {lstm_f.get('speed'):.2f} RPM"), "detail": result})
 
-            return jsonify({
-                "response": (
-                    "📈 *LSTM-Based Forecast*\n"
-                    f"- Temperature (next cycle): **{forecast['temperature']}°C**\n"
-                    f"- Speed (next cycle): **{forecast['speed']} RPM**\n"
-                    f"- Vibration (next cycle): **{forecast['vibration']} mm/s**"
-                )
-            })
-        except:
-            return jsonify({"response": "❌ Forecast engine is unavailable right now."})
+    if intent == "recommend":
+        # Merge RF/ISO/LSTM suggestions into single actionable recommendation
+        actions = []
+        if iso.get("pred") == -1:
+            actions.append("Investigate immediately for sudden anomalies (sensor check / mechanical inspection).")
+        if rf.get("pred") == 2:
+            actions.append("Immediate shutdown & inspection recommended (high failure risk).")
+        if lstm_f.get("temperature") and lstm_f.get("temperature") > 75:
+            actions.append("Cooling check: potential overheating predicted.")
+        if not actions:
+            actions.append("Continue standard monitoring; no immediate action required.")
+        return jsonify({"response": "🛠 Recommendations:\n- " + "\n- ".join(actions), "detail": result})
 
-    # ----------------------------------------
-    # HELP INTENT
-    # ----------------------------------------
     if intent == "help":
-        return jsonify({
-            "response": (
-                "🤖 I can help you with:\n"
-                "• Detecting anomalies\n"
-                "• Checking machine failure risk\n"
-                "• Forecasting temperature, speed & vibration\n"
-                "Try asking:\n"
-                "→ *Check anomaly*\n"
-                "→ *What is the failure risk?*\n"
-                "→ *Forecast temperature*"
-            )
-        })
+        return jsonify({"response": "I can detect anomalies, check failure risk, forecast next cycle, and provide recommendations. Provide chartData or ask about a machine."})
 
-    # ----------------------------------------
-    # UNKNOWN INTENT
-    # ----------------------------------------
-    return jsonify({
-        "response": "🤖 I'm not sure I understood. You can ask about *anomalies, failure risk, or forecast*."
-    })
+    # default
+    overall = result.get("overall_summary") or "Machine operating within expected parameters."
+    return jsonify({"response": overall, "detail": result})
