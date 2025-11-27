@@ -1,17 +1,25 @@
 // src/pages/Chatbot.jsx
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { HiOutlineChartBar } from "react-icons/hi";
 
 export default function Chatbot({ chartData }) {
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
+  const chatboxRef = useRef(null);
 
   useEffect(() => {
     window.chatbot = {
       say: (msg) => setMessages(prev => [...prev, { from: "bot", text: msg }])
     };
   }, []);
+
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (chatboxRef.current) {
+      chatboxRef.current.scrollTop = chatboxRef.current.scrollHeight;
+    }
+  }, [messages]);
 
   // Format message with proper styling for sections
   const formatMessage = (text) => {
@@ -24,36 +32,100 @@ export default function Chatbot({ chartData }) {
       // Empty line
       if (!line.trim()) return <div key={idx} style={{ height: 10 }} />;
       
-      // Main headers (🧠, 📊)
-      if (line.includes('🧠 Analysis Complete') || line.includes('📊')) {
+      // Separator lines (━━━)
+      if (line.includes('━━━')) {
+        return (
+          <div key={idx} style={{ 
+            borderTop: "2px solid #667eea",
+            margin: "16px 0",
+            opacity: 0.3
+          }} />
+        );
+      }
+      
+      // Dash separator lines (─────)
+      if (line.includes('─────')) {
+        return (
+          <div key={idx} style={{ 
+            borderTop: "1px solid #ddd",
+            margin: "8px 0"
+          }} />
+        );
+      }
+      
+      // Main headers (🧠, 📊, 💡)
+      if (line.includes('🧠 Analysis Complete') || line.includes('💡 INTELLIGENT RECOMMENDATIONS') || line.includes('📊')) {
         return (
           <div key={idx} style={{ 
             fontWeight: 700, 
-            fontSize: 15, 
+            fontSize: 16, 
             color: "#667eea",
-            marginBottom: 10,
+            marginTop: 16,
+            marginBottom: 12,
             paddingBottom: 8,
-            borderBottom: "2px solid #667eea30"
+            borderBottom: "2px solid #667eea30",
+            textTransform: "uppercase",
+            letterSpacing: "0.5px"
           }}>
             {line}
           </div>
         );
       }
       
-      // Section headers (📋, 🔮, 🌲, 🔍)
-      if (line.match(/^(📋|🔮|🌲|🔍)/)) {
+      // Section headers with icons (🔮, 🌲, 🔍, 🌡️, ⚙️, ⚡, 🤖, 📈)
+      if (line.match(/^(🔮|🌲|🔍|🌡️|⚙️|⚡|🤖|📈|🔧|🛡️|⚡)/)) {
+        // Check if it's a critical/high priority title
+        const isCritical = line.includes('CRITICAL') || line.includes('ALERT');
+        const isHigh = line.includes('WARNING') || line.includes('High');
+        
+        const bgColor = isCritical ? '#fee2e2' : isHigh ? '#fef3c7' : '#f8f9fa';
+        const borderColor = isCritical ? '#dc2626' : isHigh ? '#f59e0b' : '#667eea';
+        const textColor = isCritical ? '#dc2626' : isHigh ? '#d97706' : '#222';
+        
         return (
           <div key={idx} style={{ 
             fontWeight: 700, 
             fontSize: 14, 
-            color: "#222",
-            marginTop: 12,
-            marginBottom: 6,
-            background: "#f8f9fa",
-            padding: "6px 10px",
-            borderRadius: 5
+            color: textColor,
+            marginTop: 14,
+            marginBottom: 8,
+            background: bgColor,
+            padding: "8px 12px",
+            borderRadius: 6,
+            borderLeft: `4px solid ${borderColor}`
           }}>
             {line}
+          </div>
+        );
+      }
+      
+      // Sub-headers (Problem:, Impact:, etc.)
+      if (line.match(/^(Problem:|Impact:|Why:|Reason:)/)) {
+        return (
+          <div key={idx} style={{ 
+            fontWeight: 600, 
+            fontSize: 13, 
+            color: "#333",
+            marginTop: 8,
+            marginBottom: 4
+          }}>
+            {line}
+          </div>
+        );
+      }
+      
+      // Numbered steps (1., 2., etc.)
+      if (line.trim().match(/^\d+\./)) {
+        return (
+          <div key={idx} style={{ 
+            paddingLeft: 18,
+            marginBottom: 5,
+            color: "#444",
+            fontSize: 13,
+            lineHeight: 1.7,
+            fontFamily: "monospace"
+          }}>
+            {line.trim()}
           </div>
         );
       }
@@ -62,31 +134,35 @@ export default function Chatbot({ chartData }) {
       if (line.trim().startsWith('•')) {
         return (
           <div key={idx} style={{ 
-            paddingLeft: 14,
+            paddingLeft: 18,
             marginBottom: 4,
-            color: "#444",
+            color: "#555",
             fontSize: 13,
             lineHeight: 1.6
           }}>
-            {line}
+            {line.trim()}
           </div>
         );
       }
       
       // Status indicators (✅, ⚠️, 🚨)
-      if (line.match(/^(✅|⚠️|🚨)/)) {
-        const color = line.startsWith('🚨') ? '#dc2626' : line.startsWith('⚠️') ? '#f59e0b' : '#10b981';
+      if (line.match(/^(✅|⚠️|🚨|📋|🛡️)/)) {
+        const color = line.startsWith('🚨') ? '#dc2626' : 
+                     line.startsWith('⚠️') ? '#f59e0b' : 
+                     line.startsWith('📋') ? '#3b82f6' :
+                     line.startsWith('🛡️') ? '#10b981' : '#10b981';
         return (
           <div key={idx} style={{ 
-            padding: "8px 12px",
-            marginBottom: 8,
+            padding: "10px 14px",
+            marginTop: 12,
+            marginBottom: 10,
             background: `${color}15`,
             borderLeft: `4px solid ${color}`,
-            borderRadius: 5,
+            borderRadius: 6,
             color: color,
             fontWeight: 600,
             fontSize: 13,
-            lineHeight: 1.5
+            lineHeight: 1.6
           }}>
             {line}
           </div>
@@ -152,7 +228,7 @@ export default function Chatbot({ chartData }) {
         </div>
       </div>
 
-      <div id="chatbox" style={{ maxHeight: 220, overflowY: "auto", marginBottom: 10 }}>
+      <div id="chatbox" ref={chatboxRef} style={{ maxHeight: 400, overflowY: "auto", marginBottom: 10, scrollBehavior: "smooth" }}>
         {messages.length === 0 ? (
           <div style={{ 
             padding: 14, 

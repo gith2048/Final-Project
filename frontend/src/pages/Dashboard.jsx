@@ -417,7 +417,7 @@ const Dashboard = () => {
 
       // Chatbot speaks full recommendation from the new nested structure
       if (res.data?.overall_summary) {
-        const { overall_summary, random_forest, isolation_forest, lstm } = res.data;
+        const { overall_summary, random_forest, isolation_forest, lstm, recommendations } = res.data;
 
         // Build detailed recommendation message with better formatting
         let detailedMsg = `🧠 Analysis Complete for ${chartName}\n\n`;
@@ -451,7 +451,84 @@ const Dashboard = () => {
             detailedMsg += `• Cause: ${isolation_forest.cause}\n`;
           }
           if (isolation_forest.solution) {
-            detailedMsg += `• Action: ${isolation_forest.solution}`;
+            detailedMsg += `• Action: ${isolation_forest.solution}\n\n`;
+          }
+        }
+
+        // INTELLIGENT RECOMMENDATIONS (NEW!)
+        if (recommendations) {
+          detailedMsg += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+          detailedMsg += `💡 INTELLIGENT RECOMMENDATIONS & SOLUTIONS\n`;
+          detailedMsg += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+          detailedMsg += `${recommendations.summary}\n\n`;
+
+          // Display actions based on priority
+          if (recommendations.actions && recommendations.actions.length > 0) {
+            recommendations.actions.forEach((action, idx) => {
+              detailedMsg += `${action.icon} ${action.title}\n`;
+              detailedMsg += `${'─'.repeat(50)}\n`;
+              detailedMsg += `Problem: ${action.problem}\n`;
+              detailedMsg += `Impact: ${action.impact}\n\n`;
+
+              if (action.root_causes && action.root_causes.length > 0) {
+                detailedMsg += `🔍 Possible Root Causes:\n`;
+                action.root_causes.forEach(cause => {
+                  detailedMsg += `  • ${cause}\n`;
+                });
+                detailedMsg += `\n`;
+              }
+
+              if (action.immediate_actions && action.immediate_actions.length > 0) {
+                detailedMsg += `⚡ IMMEDIATE ACTIONS:\n`;
+                action.immediate_actions.forEach(step => {
+                  detailedMsg += `  ${step}\n`;
+                });
+                detailedMsg += `\n`;
+              }
+
+              if (action.resolution_steps && action.resolution_steps.length > 0) {
+                detailedMsg += `🔧 RESOLUTION STEPS:\n`;
+                action.resolution_steps.forEach(step => {
+                  detailedMsg += `  ${step}\n`;
+                });
+                detailedMsg += `\n`;
+              }
+
+              if (action.prevention && action.prevention.length > 0) {
+                detailedMsg += `🛡️ PREVENTION:\n`;
+                action.prevention.forEach(step => {
+                  detailedMsg += `  • ${step}\n`;
+                });
+                detailedMsg += `\n`;
+              }
+
+              if (idx < recommendations.actions.length - 1) {
+                detailedMsg += `\n`;
+              }
+            });
+          }
+
+          // Display preventive actions if normal
+          if (recommendations.preventive && recommendations.preventive.length > 0) {
+            recommendations.preventive.forEach(prev => {
+              detailedMsg += `${prev.icon} ${prev.title}\n`;
+              prev.actions.forEach(action => {
+                detailedMsg += `  • ${action}\n`;
+              });
+            });
+          }
+
+          detailedMsg += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+          
+          // Add priority-based footer
+          if (recommendations.priority === "critical") {
+            detailedMsg += `🚨 CRITICAL: Follow these steps IMMEDIATELY to prevent failure!\n`;
+          } else if (recommendations.priority === "high") {
+            detailedMsg += `⚠️ URGENT: Address these issues within 1 hour to prevent escalation.\n`;
+          } else if (recommendations.priority === "medium") {
+            detailedMsg += `📋 IMPORTANT: Schedule these actions within 24 hours.\n`;
+          } else {
+            detailedMsg += `✅ HEALTHY: Your machine is in good condition. Continue monitoring.\n`;
           }
         }
 

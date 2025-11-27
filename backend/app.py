@@ -56,6 +56,8 @@ def safe_load_pickle(path):
 
 iso_model = safe_load_pickle(os.path.join(MODEL_DIR, "iso_model.pkl"))
 rf_model = safe_load_pickle(os.path.join(MODEL_DIR, "rf_model.pkl"))
+rf_scaler = safe_load_pickle(os.path.join(MODEL_DIR, "scaler.pkl"))  # Scaler for RF and ISO
+label_encoder = safe_load_pickle(os.path.join(MODEL_DIR, "label_encoder.pkl"))  # Label encoder for RF
 lstm_scaler = safe_load_pickle(os.path.join(MODEL_DIR, "lstm_scaler.pkl"))
 
 # load LSTM if present
@@ -404,6 +406,423 @@ def machine_summary():
     })
 
 # ---------------------------
+# Intelligent Recommendations Generator
+# ---------------------------
+def _generate_intelligent_recommendations(temp, speed, vib, f_temp, f_speed, f_vib, 
+                                         rf_pred, iso_pred, iso_score, 
+                                         t_temp, t_speed, t_vib, chart_type):
+    """
+    AI-powered recommendations engine that analyzes all data and provides
+    actionable, specific recommendations with exact steps to resolve issues.
+    """
+    recommendations = {
+        "priority": "normal",
+        "actions": [],
+        "preventive": [],
+        "summary": ""
+    }
+    
+    critical_issues = []
+    high_issues = []
+    medium_issues = []
+    
+    # ---------------------------
+    # TEMPERATURE ANALYSIS
+    # ---------------------------
+    if temp > 95 or f_temp > 95:
+        critical_issues.append({
+            "icon": "🌡️",
+            "title": "CRITICAL TEMPERATURE ALERT",
+            "problem": f"Temperature at {temp:.1f}°C (Critical: >95°C)",
+            "impact": "Immediate risk of component failure, thermal damage, and safety hazard",
+            "root_causes": [
+                "Cooling system failure or malfunction",
+                "Coolant level critically low or empty",
+                "Cooling fans not operating",
+                "Blocked air vents or heat exchangers",
+                "Excessive friction from worn bearings",
+                "Overload condition beyond design capacity"
+            ],
+            "immediate_actions": [
+                "1. EMERGENCY SHUTDOWN - Stop machine immediately",
+                "2. Isolate power supply and lock out/tag out",
+                "3. Allow cooling for minimum 30 minutes",
+                "4. DO NOT restart until inspection complete"
+            ],
+            "resolution_steps": [
+                "1. Check coolant reservoir - refill to MAX line if low",
+                "2. Inspect cooling fans - replace if not spinning at full speed",
+                "3. Clean all air vents and filters thoroughly",
+                "4. Check coolant pump operation - repair/replace if faulty",
+                "5. Inspect for coolant leaks - seal any leaks found",
+                "6. Verify thermostat operation - replace if stuck closed",
+                "7. Check bearing lubrication - relubricate if dry",
+                "8. Reduce load by 30-40% after restart",
+                "9. Monitor temperature continuously for 1 hour after restart"
+            ],
+            "prevention": [
+                "Schedule coolant system inspection every 2 weeks",
+                "Clean air filters weekly",
+                "Check coolant levels daily",
+                "Install temperature monitoring alarm at 85°C"
+            ]
+        })
+    elif temp > 85 or f_temp > 85:
+        high_issues.append({
+            "icon": "🌡️",
+            "title": "High Temperature Warning",
+            "problem": f"Temperature at {temp:.1f}°C (High: >85°C)",
+            "impact": "Accelerated wear, reduced efficiency, potential component damage",
+            "root_causes": [
+                "Insufficient cooling capacity",
+                "Coolant level below optimal",
+                "Dirty air filters reducing airflow",
+                "High ambient temperature",
+                "Increased load or duty cycle"
+            ],
+            "immediate_actions": [
+                "1. Reduce machine load by 20-30%",
+                "2. Check coolant level - top up if below MIN line",
+                "3. Verify cooling fans are running",
+                "4. Monitor temperature every 15 minutes"
+            ],
+            "resolution_steps": [
+                "1. Clean or replace air filters",
+                "2. Check coolant concentration - adjust if needed",
+                "3. Inspect cooling fan belts - tighten if loose",
+                "4. Verify adequate ventilation around machine",
+                "5. Check lubrication points - add lubricant if needed",
+                "6. Schedule cooling system service within 48 hours"
+            ],
+            "prevention": [
+                "Clean air filters bi-weekly",
+                "Check coolant monthly",
+                "Monitor ambient temperature"
+            ]
+        })
+    elif temp > 75 or (t_temp == "rising" and temp > 70):
+        medium_issues.append({
+            "icon": "🌡️",
+            "title": "Elevated Temperature",
+            "problem": f"Temperature at {temp:.1f}°C (Warning: >75°C)",
+            "impact": "Slight efficiency reduction, monitor to prevent escalation",
+            "immediate_actions": [
+                "1. Monitor temperature trend closely",
+                "2. Ensure adequate ventilation",
+                "3. Check cooling system is functioning"
+            ],
+            "resolution_steps": [
+                "1. Verify cooling system operation",
+                "2. Check for obstructions in airflow",
+                "3. Schedule inspection within 1 week"
+            ]
+        })
+    
+    # ---------------------------
+    # VIBRATION ANALYSIS
+    # ---------------------------
+    if vib > 10 or f_vib > 10:
+        critical_issues.append({
+            "icon": "⚙️",
+            "title": "CRITICAL VIBRATION ALERT",
+            "problem": f"Vibration at {vib:.2f} mm/s (Critical: >10 mm/s)",
+            "impact": "Imminent bearing failure, catastrophic mechanical damage risk",
+            "root_causes": [
+                "Bearing failure (worn, pitted, or seized)",
+                "Severe shaft misalignment",
+                "Rotor imbalance or damage",
+                "Loose mounting bolts or foundation",
+                "Coupling wear or failure",
+                "Bent shaft"
+            ],
+            "immediate_actions": [
+                "1. EMERGENCY SHUTDOWN - Stop immediately",
+                "2. Do not restart - bearing failure likely",
+                "3. Tag machine 'DO NOT OPERATE'",
+                "4. Contact maintenance team urgently"
+            ],
+            "resolution_steps": [
+                "1. Inspect bearings for damage, heat, or noise",
+                "2. Check bearing play - replace if excessive",
+                "3. Measure shaft alignment with dial indicator",
+                "4. Check all mounting bolts - torque to specification",
+                "5. Inspect coupling for wear - replace if damaged",
+                "6. Check shaft runout - straighten or replace if bent",
+                "7. Verify rotor balance - rebalance if needed",
+                "8. Replace all worn bearings (don't mix old/new)",
+                "9. Realign shaft to within 0.002\" tolerance",
+                "10. Test run at 50% speed before full operation"
+            ],
+            "prevention": [
+                "Vibration monitoring every shift",
+                "Bearing inspection monthly",
+                "Alignment check quarterly",
+                "Lubrication schedule adherence"
+            ]
+        })
+    elif vib > 7 or f_vib > 7:
+        high_issues.append({
+            "icon": "⚙️",
+            "title": "High Vibration Warning",
+            "problem": f"Vibration at {vib:.2f} mm/s (High: >7 mm/s)",
+            "impact": "Accelerated bearing wear, potential failure within days",
+            "root_causes": [
+                "Bearing wear progressing",
+                "Misalignment developing",
+                "Imbalance condition",
+                "Loose components"
+            ],
+            "immediate_actions": [
+                "1. Reduce speed by 20%",
+                "2. Check all mounting bolts immediately",
+                "3. Listen for unusual bearing noise",
+                "4. Monitor vibration every 30 minutes"
+            ],
+            "resolution_steps": [
+                "1. Tighten all mounting bolts to specification",
+                "2. Check bearing temperature - should be <60°C",
+                "3. Inspect shaft alignment - adjust if needed",
+                "4. Verify belt tension (if belt-driven)",
+                "5. Check coupling condition",
+                "6. Schedule bearing replacement within 48 hours",
+                "7. Perform vibration analysis to identify frequency"
+            ],
+            "prevention": [
+                "Weekly vibration checks",
+                "Monthly alignment verification",
+                "Proper lubrication schedule"
+            ]
+        })
+    elif vib > 5 or (t_vib == "rising" and vib > 4):
+        medium_issues.append({
+            "icon": "⚙️",
+            "title": "Elevated Vibration",
+            "problem": f"Vibration at {vib:.2f} mm/s (Warning: >5 mm/s)",
+            "impact": "Early warning sign, monitor to prevent escalation",
+            "immediate_actions": [
+                "1. Check for loose components",
+                "2. Verify proper lubrication",
+                "3. Monitor vibration trend"
+            ],
+            "resolution_steps": [
+                "1. Inspect mounting bolts",
+                "2. Check bearing condition",
+                "3. Schedule alignment check within 1 week"
+            ]
+        })
+    
+    # ---------------------------
+    # SPEED ANALYSIS
+    # ---------------------------
+    if speed > 1500 or f_speed > 1500:
+        critical_issues.append({
+            "icon": "⚡",
+            "title": "CRITICAL SPEED ALERT",
+            "problem": f"Speed at {speed:.0f} RPM (Critical: >1500 RPM)",
+            "impact": "Runaway condition, mechanical overstress, safety hazard",
+            "root_causes": [
+                "Motor controller malfunction",
+                "Speed sensor failure",
+                "Control system feedback error",
+                "Governor failure",
+                "Electrical fault"
+            ],
+            "immediate_actions": [
+                "1. PRESS EMERGENCY STOP BUTTON",
+                "2. Disconnect power immediately",
+                "3. Do not attempt restart",
+                "4. Inspect for mechanical damage"
+            ],
+            "resolution_steps": [
+                "1. Test motor controller in manual mode",
+                "2. Check speed sensor wiring and connections",
+                "3. Verify speed sensor operation with multimeter",
+                "4. Inspect control system for errors/faults",
+                "5. Check feedback loop calibration",
+                "6. Test governor operation (if equipped)",
+                "7. Replace faulty controller or sensor",
+                "8. Recalibrate speed control system",
+                "9. Test at low speed (500 RPM) before full operation",
+                "10. Monitor speed stability for 1 hour"
+            ],
+            "prevention": [
+                "Monthly controller calibration check",
+                "Quarterly sensor inspection",
+                "Install overspeed protection at 1400 RPM"
+            ]
+        })
+    elif speed > 1350 or f_speed > 1350:
+        high_issues.append({
+            "icon": "⚡",
+            "title": "High Speed Warning",
+            "problem": f"Speed at {speed:.0f} RPM (High: >1350 RPM)",
+            "impact": "Operating above design limits, reduced component life",
+            "root_causes": [
+                "Excessive load demand",
+                "Incorrect speed setpoint",
+                "Control system drift",
+                "Load imbalance"
+            ],
+            "immediate_actions": [
+                "1. Reduce machine load immediately",
+                "2. Verify speed setpoint is correct",
+                "3. Check for control system errors",
+                "4. Monitor speed for 30 minutes"
+            ],
+            "resolution_steps": [
+                "1. Review and adjust speed setpoint",
+                "2. Check load distribution",
+                "3. Verify motor controller settings",
+                "4. Inspect for control system faults",
+                "5. Calibrate speed control if needed",
+                "6. Balance load across system"
+            ],
+            "prevention": [
+                "Weekly speed verification",
+                "Monthly controller check",
+                "Load monitoring"
+            ]
+        })
+    elif speed > 1200 or (t_speed == "rising" and speed > 1150):
+        medium_issues.append({
+            "icon": "⚡",
+            "title": "Elevated Speed",
+            "problem": f"Speed at {speed:.0f} RPM (Warning: >1200 RPM)",
+            "impact": "Approaching high threshold, monitor closely",
+            "immediate_actions": [
+                "1. Verify speed setpoint matches requirements",
+                "2. Check load conditions",
+                "3. Monitor speed stability"
+            ],
+            "resolution_steps": [
+                "1. Review operational parameters",
+                "2. Schedule controller calibration",
+                "3. Verify load is within design limits"
+            ]
+        })
+    
+    # ---------------------------
+    # ML MODEL ANALYSIS (FIXED: Correct rf_pred values)
+    # ---------------------------
+    # rf_pred: 0=critical, 1=normal, 2=warning
+    if rf_pred == 0 or (rf_pred == 2 and iso_pred == -1):
+        critical_issues.append({
+            "icon": "🤖",
+            "title": "ML Model: Critical Failure Risk Detected",
+            "problem": "Machine learning models predict imminent failure",
+            "impact": "AI has identified patterns matching previous failures",
+            "root_causes": [
+                "Combination of sensor readings matches failure signature",
+                "Multiple parameters showing concerning trends",
+                "Anomalous behavior detected in operational patterns"
+            ],
+            "immediate_actions": [
+                "1. Take ML prediction seriously - high accuracy",
+                "2. Perform comprehensive inspection immediately",
+                "3. Check all critical components",
+                "4. Consider preventive shutdown"
+            ],
+            "resolution_steps": [
+                "1. Inspect all components identified in temperature/vibration/speed analysis",
+                "2. Perform detailed diagnostic tests",
+                "3. Replace any components showing wear",
+                "4. Address all identified issues before restart"
+            ]
+        })
+    
+    # ---------------------------
+    # ANOMALY DETECTION
+    # ---------------------------
+    if iso_pred == -1 and iso_score and iso_score < -0.1:
+        high_issues.append({
+            "icon": "🔍",
+            "title": "Severe Anomaly Detected",
+            "problem": f"Isolation Forest score: {iso_score:.3f} (Critical: <-0.1)",
+            "impact": "Unusual pattern detected - investigate immediately",
+            "root_causes": [
+                "Sudden change in operating conditions",
+                "Sensor malfunction or drift",
+                "Unexpected mechanical behavior",
+                "Process change or disturbance"
+            ],
+            "immediate_actions": [
+                "1. Investigate what changed recently",
+                "2. Check sensor calibration",
+                "3. Inspect for mechanical changes",
+                "4. Review recent maintenance activities"
+            ],
+            "resolution_steps": [
+                "1. Verify all sensors are functioning correctly",
+                "2. Check for recent process changes",
+                "3. Inspect machine for physical changes",
+                "4. Review maintenance logs for recent work",
+                "5. Recalibrate sensors if needed"
+            ]
+        })
+    
+    # ---------------------------
+    # TREND ANALYSIS
+    # ---------------------------
+    rising_trends = []
+    if t_temp == "rising": rising_trends.append("temperature")
+    if t_vib == "rising": rising_trends.append("vibration")
+    if t_speed == "rising": rising_trends.append("speed")
+    
+    if len(rising_trends) >= 2:
+        high_issues.append({
+            "icon": "📈",
+            "title": "Multiple Rising Trends Detected",
+            "problem": f"Rising trends in: {', '.join(rising_trends)}",
+            "impact": "Condition deteriorating, intervention needed soon",
+            "immediate_actions": [
+                "1. Identify root cause of increases",
+                "2. Take corrective action now",
+                "3. Monitor all parameters every 10 minutes"
+            ],
+            "resolution_steps": [
+                "1. Address each rising parameter per recommendations above",
+                "2. Look for common root cause",
+                "3. Implement corrective measures",
+                "4. Monitor effectiveness of actions"
+            ]
+        })
+    
+    # ---------------------------
+    # BUILD RECOMMENDATIONS RESPONSE
+    # ---------------------------
+    if critical_issues:
+        recommendations["priority"] = "critical"
+        recommendations["actions"] = critical_issues
+        recommendations["summary"] = f"🚨 CRITICAL: {len(critical_issues)} critical issue(s) detected. IMMEDIATE ACTION REQUIRED to prevent failure and ensure safety!"
+    elif high_issues:
+        recommendations["priority"] = "high"
+        recommendations["actions"] = high_issues
+        recommendations["summary"] = f"⚠️ HIGH PRIORITY: {len(high_issues)} serious issue(s) detected. Urgent attention needed within 1 hour to prevent escalation."
+    elif medium_issues:
+        recommendations["priority"] = "medium"
+        recommendations["actions"] = medium_issues
+        recommendations["summary"] = f"📋 MEDIUM PRIORITY: {len(medium_issues)} issue(s) detected. Schedule inspection within 24 hours."
+    else:
+        recommendations["priority"] = "normal"
+        recommendations["summary"] = "✅ Machine is operating normally. Continue standard monitoring procedures."
+        recommendations["preventive"] = [
+            {
+                "icon": "✅",
+                "title": "Routine Maintenance Schedule",
+                "actions": [
+                    "Continue standard monitoring procedures",
+                    "Check lubrication levels weekly",
+                    "Inspect for wear and tear monthly",
+                    "Schedule next preventive maintenance",
+                    "Keep maintenance logs updated"
+                ]
+            }
+        ]
+    
+    return recommendations
+
+
+# ---------------------------
 # main analyze endpoint (updated to use 3 params)
 # ---------------------------
 @app.route("/chat/analyze", methods=["POST"])
@@ -486,24 +905,32 @@ def analyze_chart():
         f_temp, f_speed, f_vib = latest_for_models
 
     # ---------------------------
-    # RANDOM FOREST
+    # RANDOM FOREST (FIXED: Now uses scaling and correct label mapping)
     # ---------------------------
     try:
-        if rf_model is not None:
-            rf_pred = int(rf_model.predict([latest_for_models])[0])
-            if rf_pred == 1:
-                rf_issue = "Abnormal (Alert)"
-                rf_cause = "The machine's operating signature matches known failure patterns."
-                rf_solution = "An immediate inspection is recommended to prevent potential failure."
-            else:
+        if rf_model is not None and rf_scaler is not None:
+            # CRITICAL FIX: Scale features before prediction
+            features_scaled = rf_scaler.transform([latest_for_models])
+            rf_pred = int(rf_model.predict(features_scaled)[0])
+            
+            # CRITICAL FIX: Correct label mapping (0=critical, 1=normal, 2=warning)
+            if rf_pred == 0:
+                rf_issue = "Critical (Failure Risk)"
+                rf_cause = "The machine's operating signature matches critical failure patterns."
+                rf_solution = "IMMEDIATE ACTION REQUIRED: Stop machine and perform comprehensive inspection."
+            elif rf_pred == 2:
+                rf_issue = "Warning (Elevated Risk)"
+                rf_cause = "The machine's operating signature shows warning signs of potential issues."
+                rf_solution = "Schedule inspection within 24 hours to prevent escalation."
+            else:  # rf_pred == 1
                 rf_issue = "Normal"
                 rf_cause = "The machine's operational signature appears healthy and stable."
                 rf_solution = "Continue with standard monitoring procedures."
         else:
             rf_pred = None
             rf_issue = "RF Model not loaded"
-            rf_cause = "Model file missing"
-            rf_solution = "Retrain and place rf_model.pkl in model directory."
+            rf_cause = "Model file or scaler missing"
+            rf_solution = "Retrain and place rf_model.pkl and scaler.pkl in model directory."
     except Exception as e:
         rf_pred = None
         rf_issue = "RF Model Error"
@@ -511,12 +938,15 @@ def analyze_chart():
         rf_solution = "Retrain RF model."
 
     # ---------------------------
-    # ISOLATION FOREST
+    # ISOLATION FOREST (FIXED: Now uses scaling)
     # ---------------------------
     try:
-        if iso_model is not None:
-            iso_pred = int(iso_model.predict([latest_for_models])[0])
-            iso_score = float(iso_model.decision_function([latest_for_models])[0])
+        if iso_model is not None and rf_scaler is not None:
+            # CRITICAL FIX: Scale features before prediction
+            features_scaled = rf_scaler.transform([latest_for_models])
+            iso_pred = int(iso_model.predict(features_scaled)[0])
+            iso_score = float(iso_model.decision_function(features_scaled)[0])
+            
             if iso_pred == -1:
                 if iso_score < -0.1:
                     iso_issue = "Critical Sudden Change"
@@ -534,8 +964,8 @@ def analyze_chart():
             iso_pred = None
             iso_score = None
             iso_issue = "ISO Model not loaded"
-            iso_cause = "Model file missing"
-            iso_solution = "Retrain and place iso_model.pkl in model directory."
+            iso_cause = "Model file or scaler missing"
+            iso_solution = "Retrain and place iso_model.pkl and scaler.pkl in model directory."
     except Exception as e:
         iso_pred = None
         iso_score = None
@@ -638,6 +1068,17 @@ def analyze_chart():
         cause = ", ".join(causes) if causes else "Values are within safe limits."
         solution = ", ".join(solutions) if solutions else "No action required."
 
+    # ---------------------------
+    # INTELLIGENT RECOMMENDATIONS ENGINE
+    # ---------------------------
+    recommendations = _generate_intelligent_recommendations(
+        latest_temp, latest_speed, latest_vib,
+        f_temp, f_speed, f_vib,
+        rf_pred, iso_pred, iso_score,
+        t_temp, t_speed, t_vib,
+        chart_type
+    )
+    
     # Restructure the response to be nested as the frontend expects
     return jsonify({
         "overall_summary": summary,
@@ -666,7 +1107,8 @@ def analyze_chart():
             "temperature": t_temp,
             "speed": t_speed,
             "vibration": t_vib
-        }
+        },
+        "recommendations": recommendations
     })
 
 
