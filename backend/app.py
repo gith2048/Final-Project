@@ -3,6 +3,10 @@ import os
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv()
+
 from secret import SECRET_KEY
 from flask import session
 from flask import Flask, request, jsonify, send_file
@@ -24,13 +28,23 @@ import numpy as np
 import pandas as pd
 from email.mime.text import MIMEText
 import threading
+from alert_system import process_sensor_data
+
 
 # ---------------------------
 # App & DB
 # ---------------------------
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
-CORS(app, origins=["http://localhost:5173"], supports_credentials=True)
+# Enable CORS for all routes with credentials support
+CORS(app, resources={
+    r"/*": {
+        "origins": ["http://localhost:5173", "http://127.0.0.1:5173"],
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": True
+    }
+})
 
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:@localhost/predictive_maintenance2'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -825,8 +839,16 @@ def _generate_intelligent_recommendations(temp, speed, vib, f_temp, f_speed, f_v
 # ---------------------------
 # main analyze endpoint (updated to use 3 params)
 # ---------------------------
-@app.route("/chat/analyze", methods=["POST"])
+@app.route("/chat/analyze", methods=["POST", "OPTIONS"])
 def analyze_chart():
+    # Handle preflight OPTIONS request
+    if request.method == "OPTIONS":
+        response = jsonify({"status": "ok"})
+        response.headers.add("Access-Control-Allow-Origin", request.headers.get("Origin", "*"))
+        response.headers.add("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        response.headers.add("Access-Control-Allow-Methods", "POST, OPTIONS")
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+        return response, 200
     import numpy as np
     payload = request.get_json(force=True) or {}
 
@@ -847,13 +869,16 @@ def analyze_chart():
     vib = safe(data.get("vibration"))
 
     if len(temp) < 3 or len(speed) < 3 or len(vib) < 3:
-        return jsonify({
+        response = jsonify({
             "issue": "Not enough data",
             "cause": "Need minimum 3 points",
             "solution": "Collect more readings",
             "forecast": None,
             "summary": "No meaningful analysis possible due to insufficient data."
-        }), 400
+        })
+        response.headers.add("Access-Control-Allow-Origin", request.headers.get("Origin", "*"))
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+
 
     def clean(a):
         a = np.array(a, float)
@@ -1079,6 +1104,36 @@ def analyze_chart():
         chart_type
     )
     
+    # ---------------------------
+    # TRIGGER ALERT SYSTEM (Send Email based on conditions)
+    # ---------------------------
+    alert_result = None
+    email_sent = False
+    
+    # Check if we should trigger alerts based on recommendations priority
+    if recommendations.get("priority") in ["critical", "high", "medium"]:
+        try:
+            # Get user email from payload
+            user_email = payload.get("email")
+            machine_id = payload.get("machine_id", "Unknown")
+            
+            # Prepare data for alert system
+            alert_data = {
+                "temperature": temp,
+                "speed": speed,
+                "vibration": vib,
+                "email": user_email,
+                "machine_id": machine_id
+            }
+            
+            # Process and send alerts
+            alert_result = process_sensor_data(alert_data)
+            email_sent = alert_result.get("email_sent", False)
+            
+            print(f"✅ Alert system triggered - Email sent: {email_sent}")
+        except Exception as e:
+            print(f"❌ Alert system error: {e}")
+    
     # Restructure the response to be nested as the frontend expects
     return jsonify({
         "overall_summary": summary,
@@ -1108,7 +1163,12 @@ def analyze_chart():
             "speed": t_speed,
             "vibration": t_vib
         },
-        "recommendations": recommendations
+        "recommendations": recommendations,
+        "alert_status": {
+            "email_sent": email_sent,
+            "alerts": alert_result.get("alerts", []) if alert_result else [],
+            "status": alert_result.get("status", "Unknown") if alert_result else "Unknown"
+        }
     })
 
 
@@ -1161,80 +1221,70 @@ def get_logs():
     return jsonify([{"machine_id": l.machine_id, "issue": l.issue_detected, "action": l.action_taken} for l in logs])
 
 # ------- report / process / download endpoints unchanged -------
-@app.route("/process", methods=["POST"])
-def process_data():
-    data = request.json or {}
-    temp = data.get("temperature", [])
-    speed = data.get("speed", [])
-    vibration = data.get("vibration", [])
 
-    min_len = min(len(temp), len(speed), len(vibration)) if (temp and speed and vibration) else 0
-    if min_len == 0:
-        return jsonify({"error": "No valid sensor arrays provided."}), 400
 
-    df = pd.DataFrame({
-        "temperature": [float(x) for x in temp[:min_len]],
-        "speed": [float(x) for x in speed[:min_len]],
-        "vibration": [float(x) for x in vibration[:min_len]]
-    })
+@app.route("/process", methods=["POST", "OPTIONS"])
+def process_data_route():
+    """Process sensor data and trigger alert system - UPDATED"""
+    # Handle preflight OPTIONS request
+    if request.method == "OPTIONS":
+        response = jsonify({"status": "ok"})
+        response.headers.add("Access-Control-Allow-Origin", request.headers.get("Origin", "*"))
+        response.headers.add("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        response.headers.add("Access-Control-Allow-Methods", "POST, OPTIONS")
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+        return response, 200
+    
+    try:
+        data = request.json or {}
+        print(f"📥 Received /process request for machine: {data.get('machine_id', 'Unknown')}")
+        print(f"📧 Email: {data.get('email', 'Not provided')}")
+        print(f"📊 Data points - Temp: {len(data.get('temperature', []))}, Vib: {len(data.get('vibration', []))}, Speed: {len(data.get('speed', []))}")
+        
+        # Validate required data
+        if not data.get('temperature') or not data.get('vibration') or not data.get('speed'):
+            response = jsonify({
+                "error": "Missing sensor data",
+                "status": "Error",
+                "alerts": [],
+                "recommendation": "Please ensure all sensor data is provided"
+            })
+            response.headers.add("Access-Control-Allow-Origin", request.headers.get("Origin", "*"))
+            response.headers.add("Access-Control-Allow-Credentials", "true")
+            return response, 400
+        
+        # Process the data
+        result = process_sensor_data(data)
+        print(f"✅ Processing complete - Status: {result.get('status')}, Email sent: {result.get('email_sent', False)}")
+        
+        response = jsonify(result)
+        response.headers.add("Access-Control-Allow-Origin", request.headers.get("Origin", "*"))
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+        return response, 200
+        
+    except Exception as e:
+        print(f"❌ Error in /process endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        response = jsonify({
+            "error": str(e),
+            "status": "Error",
+            "alerts": [],
+            "recommendation": "An error occurred during processing. Please try again.",
+            "email_sent": False
+        })
+        response.headers.add("Access-Control-Allow-Origin", request.headers.get("Origin", "*"))
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+        return response, 500
 
-    avg_temp = df["temperature"].mean()
-    avg_speed = df["speed"].mean()
-    avg_vibration = df["vibration"].mean()
-    status = "Healthy" if (avg_temp < 75 and avg_speed <= 1200 and avg_vibration <= 5.0) else "Check Required"
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    alerts = []
-    if avg_temp > 75:
-        alerts.append(f"High temperature: {avg_temp:.2f} °C")
-    if avg_vibration > 5.0:
-        alerts.append(f"High vibration: {avg_vibration:.2f} mm/s")
-    if avg_speed > 1200:
-        alerts.append(f"High speed: {avg_speed:.2f} RPM")
-
-    recommendation = "✅ Machine is operating within safe parameters."
-    if avg_temp > 75 and avg_speed > 1200:
-        recommendation = "⚠️ High temperature and high speed detected. Inspect cooling system and motor load."
-    elif avg_temp > 75:
-        recommendation = "⚠️ Temperature exceeds safe threshold. Check for overheating or poor lubrication."
-    elif avg_speed > 1200:
-        recommendation = "⚠️ Speed exceeds optimal range. Verify motor calibration and load conditions."
-    elif avg_vibration > 5.0:
-        recommendation = "⚠️ Vibration exceeds safe limits. Inspect bearings and alignment."
-
-    pdf_path = "report.pdf"
-    c = canvas.Canvas(pdf_path, pagesize=A4)
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(100, 800, "Machine Status Report")
-    c.setFont("Helvetica", 12)
-    c.drawString(100, 770, f"Generated on: {timestamp}")
-    c.drawString(100, 750, f"Average Temperature: {avg_temp:.2f} °C")
-    c.drawString(100, 730, f"Average Vibration: {avg_vibration:.2f} mm/s")
-    c.drawString(100, 710, f"Average Speed: {avg_speed:.2f} RPM")
-    c.drawString(100, 690, f"Status: {status}")
-    c.drawString(100, 670, f"Recommendation: {recommendation}")
-    if alerts:
-        c.drawString(100, 640, "Alerts:")
-        for i, a in enumerate(alerts):
-            c.drawString(120, 620 - i*20, f"- {a}")
-    c.showPage()
-    c.save()
-
-    return jsonify({
-        "status": status,
-        "avg_temp": float(avg_temp),
-        "avg_vibration": float(avg_vibration),
-        "avg_speed": float(avg_speed),
-        "recommendation": recommendation,
-        "alerts": alerts,
-        "report_url": "/download"
-    })
 
 @app.route("/download", methods=["GET"])
 def download_report():
-    if not os.path.exists("report.pdf"):
+    # PDF is saved in backend directory
+    pdf_path = os.path.join(os.path.dirname(__file__), "report.pdf")
+    if not os.path.exists(pdf_path):
         return jsonify({"error": "Report not generated"}), 404
-    return send_file("report.pdf", as_attachment=True, download_name="Machine_Report.pdf", mimetype="application/pdf")
+    return send_file(pdf_path, as_attachment=True, download_name="Machine_Report.pdf", mimetype="application/pdf")
 
 
 # ---------------------------

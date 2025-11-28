@@ -391,6 +391,8 @@ const Dashboard = () => {
           speed: dashboardData.speed,
           vibration: dashboardData.vibration,
         },
+        email: currentUser?.email,  // Add user email for alert system
+        machine_id: selectedMachine,  // Add machine ID for alert system
       };
 
       // Attach sequence if available (SEQ_LEN x 3)
@@ -570,10 +572,14 @@ const Dashboard = () => {
   // ------------------------------------
   const handleSendToColab = async () => {
     if (!dashboardData) return;
+    
+    setEmailSent(true);
+    
     try {
       const labels = generateLabels(averages);
 
-      const res = await axios.post("https://spaviet-shawnta-commonly.ngrok-free.dev/process", {
+      // Use local backend instead of ngrok
+      const res = await axios.post("http://localhost:5000/process", {
         temperature: dashboardData.temperature,
         vibration: dashboardData.vibration,
         speed: dashboardData.speed,
@@ -585,13 +591,31 @@ const Dashboard = () => {
       setReport(res.data);
       setAlerts(res.data.alerts || []);
       setShutdown(res.data.shutdown || false);
-      setHealthSummary(res.data.health_summary || "");
+      
+      // Update health summary with alert status
+      let summary = res.data.recommendation || "Analysis complete";
+      if (res.data.email_sent) {
+        summary += " 📧 Alert email sent successfully!";
+      }
+      setHealthSummary(summary);
 
-      setEmailSent(true);
+      // Show success message in chatbot if available
+      if (window.chatbot) {
+        const statusMsg = res.data.status === "CRITICAL" ? "🚨 CRITICAL" : 
+                         res.data.status === "High Risk" ? "⚠️ HIGH RISK" :
+                         res.data.status === "Moderate" ? "📋 MODERATE" : "✅ HEALTHY";
+        window.chatbot.say(`${statusMsg} - Analysis complete. ${res.data.email_sent ? "Alert email sent!" : ""}`);
+      }
+
       setTimeout(() => setEmailSent(false), 8000);
     } catch (err) {
-      console.error("Colab error", err);
+      console.error("Analysis error", err);
+      setHealthSummary("❌ Analysis failed. Please try again.");
       setEmailSent(false);
+      
+      if (window.chatbot) {
+        window.chatbot.say("❌ Analysis failed. Please check your connection and try again.");
+      }
     }
   };
 

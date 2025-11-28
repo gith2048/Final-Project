@@ -209,32 +209,48 @@ export default function Chatbot({ chartData }) {
   };
 
   return (
-    <div id="chatbox-widget">
+    <div id="chatbox-widget" style={{ 
+      display: "flex", 
+      flexDirection: "column", 
+      height: "100%",
+      minHeight: 0
+    }}>
       {/* Drag and Drop Instruction */}
       <div style={{ 
         background: "linear-gradient(135deg, #667eea15 0%, #764ba215 100%)",
         border: "2px dashed #667eea",
         borderRadius: 8,
-        padding: 14,
+        padding: "10px 14px",
         marginBottom: 12,
-        textAlign: "center"
+        textAlign: "center",
+        flexShrink: 0
       }}>
-        <HiOutlineChartBar size={32} style={{ color: "#667eea", marginBottom: 6 }} />
-        <div style={{ fontSize: 15, fontWeight: 700, color: "#667eea", marginBottom: 4 }}>
+        <HiOutlineChartBar size={28} style={{ color: "#667eea", marginBottom: 4 }} />
+        <div style={{ fontSize: 14, fontWeight: 700, color: "#667eea", marginBottom: 2 }}>
           📊 Drag & Drop Chart Here
         </div>
-        <div style={{ fontSize: 13, color: "#666" }}>
+        <div style={{ fontSize: 12, color: "#666" }}>
           Drop any chart to analyze machine condition
         </div>
       </div>
 
-      <div id="chatbox" ref={chatboxRef} style={{ maxHeight: 400, overflowY: "auto", marginBottom: 10, scrollBehavior: "smooth" }}>
+      <div 
+        id="chatbox" 
+        ref={chatboxRef} 
+        style={{ 
+          flex: 1,
+          overflowY: "auto", 
+          marginBottom: 10, 
+          scrollBehavior: "smooth",
+          minHeight: 0
+        }}
+      >
         {messages.length === 0 ? (
           <div style={{ 
             padding: 14, 
             textAlign: "center", 
             color: "#999", 
-            fontSize: 14,
+            fontSize: 13,
             fontStyle: "italic" 
           }}>
             👋 Hi! I'm ready to help analyze your machine data.
@@ -243,54 +259,63 @@ export default function Chatbot({ chartData }) {
           messages.map((m, i) => (
             <div key={i} style={{ 
               margin: "8px 0", 
-              padding: 12, 
+              padding: 10, 
               borderRadius: 8, 
               background: m.from === "bot" ? "linear-gradient(135deg, #e6f0ff 0%, #f0f7ff 100%)" : "#f0f0f0",
-              fontSize: 13,
-              lineHeight: 1.7,
+              fontSize: 12,
+              lineHeight: 1.6,
               boxShadow: m.from === "bot" ? "0 2px 6px rgba(102, 126, 234, 0.15)" : "none",
-              borderLeft: m.from === "bot" ? "4px solid #667eea" : "none"
+              borderLeft: m.from === "bot" ? "4px solid #667eea" : "none",
+              wordBreak: "break-word"
             }}>
-              <div style={{ whiteSpace: "pre-wrap", fontFamily: "system-ui, -apple-system, sans-serif" }}>
+              <div style={{ 
+                whiteSpace: "pre-wrap", 
+                fontFamily: "system-ui, -apple-system, sans-serif",
+                overflowWrap: "break-word"
+              }}>
                 {formatMessage(m.text)}
               </div>
             </div>
           ))
         )}
       </div>
-      <input 
-        value={message} 
-        onChange={e => setMessage(e.target.value)} 
-        onKeyPress={e => e.key === 'Enter' && handleSend()}
-        placeholder="Ask: anomaly / forecast / recommend..." 
-        style={{ 
-          width: "100%", 
-          padding: 10, 
-          marginBottom: 8,
-          border: "1px solid #ddd",
-          borderRadius: 6,
-          fontSize: 14
-        }} 
-      />
-      <button 
-        onClick={handleSend} 
-        style={{ 
-          width: "100%", 
-          padding: 12, 
-          background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", 
-          color: "white", 
-          borderRadius: 6,
-          border: "none",
-          cursor: "pointer",
-          fontWeight: 700,
-          fontSize: 15,
-          transition: "opacity 0.2s"
-        }}
-        onMouseEnter={(e) => e.currentTarget.style.opacity = "0.9"}
-        onMouseLeave={(e) => e.currentTarget.style.opacity = "1"}
-      >
-        Send Message
-      </button>
+      
+      <div style={{ flexShrink: 0 }}>
+        <input 
+          value={message} 
+          onChange={e => setMessage(e.target.value)} 
+          onKeyPress={e => e.key === 'Enter' && handleSend()}
+          placeholder="Ask: anomaly / forecast / recommend..." 
+          style={{ 
+            width: "100%", 
+            padding: "10px 12px", 
+            marginBottom: 8,
+            border: "1px solid #ddd",
+            borderRadius: 6,
+            fontSize: 13,
+            boxSizing: "border-box"
+          }} 
+        />
+        <button 
+          onClick={handleSend} 
+          style={{ 
+            width: "100%", 
+            padding: "10px 12px", 
+            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", 
+            color: "white", 
+            borderRadius: 6,
+            border: "none",
+            cursor: "pointer",
+            fontWeight: 700,
+            fontSize: 14,
+            transition: "opacity 0.2s"
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.opacity = "0.9"}
+          onMouseLeave={(e) => e.currentTarget.style.opacity = "1"}
+        >
+          Send Message
+        </button>
+      </div>
     </div>
   );
 }
