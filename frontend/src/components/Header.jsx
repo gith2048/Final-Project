@@ -11,32 +11,28 @@ const Header = ({ isAuthenticated }) => {
   };
 
   return (
-    <header className="bg-white text-blue-700 shadow-sm">
+    <header className="bg-white shadow-sm">
       <div className="max-w-7xl mx-auto flex justify-between items-center p-4">
         <Link to="/" className="flex items-center space-x-2">
-          <img
-            src="/assets/logo.png"
-            alt="Optimus-PdM Logo"
-            className="h-10 w-auto object-contain transition-transform duration-300 transform hover:scale-110 hover:rotate-3"
-          />
-          <span className="text-2xl font-bold hover:text-yellow-500 transition-colors duration-300">
-            Optimus-PdM
-          </span>
+          
+          <span className="text-4xl font-bold bg-gradient-to-tr from-sky-500 to-fuchsia-500 bg-clip-text text-transparent">
+         Optimus-PdM
+            </span>
         </Link>
 
         <nav className="hidden md:flex space-x-6 items-center">
-          <Link to="/" className="hover:text-yellow-500 transition">Home</Link>
-          <Link to="/products" className="hover:text-yellow-500 transition">Products</Link>
-          <Link to="/about" className="hover:text-yellow-500 transition">About Us</Link>
-          <Link to="/contact" className="hover:text-yellow-500 transition">Contact</Link>
+          <Link to="/" className="font-semibold">Home</Link>
+          <Link to="/products" className="font-semibold">Products</Link>
+          <Link to="/about" className="font-semibold">About Us</Link>
+          <Link to="/contact" className="font-semibold">Contact</Link>
           {isAuthenticated ? (
             <>
-              <Link to="/profile" className="hover:text-yellow-500 transition">Profile</Link>
+              <Link to="/profile" className="font-semibold">Profile</Link>
 
               
             </>
           ) : (
-            <Link to="/login" className="hover:text-yellow-500 transition">Login</Link>
+            <Link to="/login" className="font-semibold">Login</Link>
           )}
         </nav>
 
