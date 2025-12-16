@@ -1,4 +1,3 @@
-import React from 'react';
 import { useLocation } from 'react-router-dom';
 import Header from "../components/Header";
 import Footer from "../components/Footer";
@@ -10,8 +9,8 @@ const AppLayout = ({ children, isAuthenticated }) => {
 
   return (
     <>
-      {!isDashboardView && <Header isAuthenticated={isAuthenticated} />}
-      <main className="p-4">{children}</main>
+      <Header isAuthenticated={isAuthenticated} />
+      <main className={isDashboardView ? "" : "p-4"}>{children}</main>
       {!isDashboardView && <Footer />}
     </>
   );

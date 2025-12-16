@@ -137,14 +137,12 @@ const Profile = ({ currentUser, setCurrentUser }) => {
         </div>
 
         {/* Dashboard Button */}
-        <a
-          href="/dashboard"
-          target="_blank"
-          rel="noopener noreferrer"
+        <button
+          onClick={() => window.open("/dashboard", "_blank")}
           className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
         >
           Go to Dashboard
-        </a>
+        </button>
 
         {/* Machine Summary */}
         <h2 className="text-xl font-semibold mt-8 mb-4">Connected Machines</h2>

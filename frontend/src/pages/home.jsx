@@ -1,5 +1,5 @@
 import React from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   FaChartLine,
@@ -9,6 +9,16 @@ import {
 } from "react-icons/fa";
 
 const Home = () => {
+  const navigate = useNavigate();
+
+  const handleViewAllSolutions = () => {
+    navigate("/products");
+    // Scroll to top after navigation
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }, 100);
+  };
+
   const features = [
     {
       icon: <FaChartLine className="text-4xl text-blue-600 mb-4" />,
@@ -95,13 +105,13 @@ const Home = () => {
           >
             <Link
               to="/products"
-              className="px-6 py-3 bg-yellow-400 text-blue-800 font-bold rounded-lg hover:bg-yellow-500 transition"
+              className="px-6 py-3 bg-yellow-400 text-blue-800 font-bold rounded-lg hover:bg-yellow-500 transition-all duration-300"
             >
               Explore Solutions
             </Link>
             <Link
               to="/contact"
-              className="px-6 py-3 border-2 border-white rounded-lg hover:bg-white hover:text-blue-800 transition"
+              className="px-6 py-3 border-2 border-white rounded-lg hover:bg-white hover:text-blue-800 transition-all duration-300"
             >
               Contact Us
             </Link>
@@ -116,11 +126,15 @@ const Home = () => {
           {features.map((feature, i) => (
             <motion.div
               key={i}
-              className="bg-white p-6 rounded-lg shadow hover:shadow-lg transition text-center flex flex-col items-center"
+              className="bg-white p-6 rounded-lg shadow hover:shadow-lg transition-all duration-300 text-center flex flex-col items-center"
               initial={{ opacity: 0, y: 50 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
-              transition={{ duration: 0.5, delay: i * 0.2 }}
+              transition={{ 
+                duration: 0.5, 
+                delay: i * 0.2,
+                ease: "easeOut"
+              }}
             >
               {feature.icon}
               <h3 className="font-bold text-xl mb-2">{feature.title}</h3>
@@ -154,7 +168,7 @@ const Home = () => {
         className="
           backdrop-blur-xl bg-white/10 border border-white/20 
           rounded-2xl shadow-lg hover:shadow-2xl 
-          transition transform overflow-hidden
+          transition-all duration-300 transform overflow-hidden
         "
       >
         {/* FULL-BLEED IMAGE – Touching all edges */}
@@ -163,6 +177,18 @@ const Home = () => {
             src={product.image}
             alt={product.name}
             className="w-full h-full object-cover"
+            onError={(e) => {
+              // Fallback to colored placeholder if image fails to load
+              e.target.style.display = 'none';
+              e.target.parentElement.innerHTML = `
+                <div class="w-full h-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                  <div class="text-center text-white">
+                    <div class="text-3xl mb-2">${product.id === 1 ? '📊' : product.id === 2 ? '📈' : '🤖'}</div>
+                    <div class="text-sm font-semibold">${product.name}</div>
+                  </div>
+                </div>
+              `;
+            }}
           />
         </div>
 
@@ -175,7 +201,7 @@ const Home = () => {
             to={`/products/${product.id}`}
             className="
               px-5 py-2 bg-blue-600 text-white 
-              rounded-lg hover:bg-blue-700 transition font-semibold
+              rounded-lg hover:bg-blue-700 transition-all duration-300 font-semibold
             "
           >
             Learn More
@@ -187,17 +213,17 @@ const Home = () => {
 
   {/* CTA Button */}
   <div className="w-full flex justify-center mt-16">
-    <Link
-      to="/products"
+    <button
+      onClick={handleViewAllSolutions}
       className="
         px-8 py-3 text-lg font-semibold 
         bg-yellow-400 text-blue-900 
         rounded-lg shadow-lg hover:bg-yellow-500 
-        transition
+        transition-all duration-300
       "
     >
       View All Solutions
-    </Link>
+    </button>
   </div>
 </section>
 
@@ -214,7 +240,7 @@ const Home = () => {
           </p>
           <Link
             to="/contact"
-            className="px-6 py-3 bg-yellow-400 text-blue-800 font-bold rounded-lg hover:bg-yellow-500 transition"
+            className="px-6 py-3 bg-yellow-400 text-blue-800 font-bold rounded-lg hover:bg-yellow-500 transition-all duration-300"
           >
             Connect With Us
           </Link>

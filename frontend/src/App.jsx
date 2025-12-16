@@ -26,7 +26,29 @@ function App() {
     AOS.init({ duration: 1000 });
   }, []);
 
-  const isDashboardView = location.pathname === "/dashboard";
+  // Handle cross-tab logout
+  useEffect(() => {
+    const handleStorageChange = (e) => {
+      if (e.key === "logout-event") {
+        // Another tab initiated logout
+        setCurrentUser(null);
+        
+        // Close this tab if it's not the login page
+        if (location.pathname !== "/login") {
+          window.close();
+        }
+      }
+    };
+
+    // Listen for storage changes (cross-tab communication)
+    window.addEventListener("storage", handleStorageChange);
+
+    return () => {
+      window.removeEventListener("storage", handleStorageChange);
+    };
+  }, [location.pathname]);
+
+
 
   const routes = (
     <Routes>
@@ -89,7 +111,7 @@ function App() {
     </Routes>
   );
 
-  return isDashboardView ? routes : (
+  return (
     <AppLayout isAuthenticated={!!currentUser}>
       {routes}
     </AppLayout>

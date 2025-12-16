@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import Chart from "chart.js/auto";
 import ChartDataLabels from "chartjs-plugin-datalabels";
 import axios from "axios";
@@ -14,6 +15,7 @@ Chart.register(ChartDataLabels);
 const SEQ_LEN = 10; // LSTM sequence length (must match backend)
 
 const Dashboard = () => {
+  const navigate = useNavigate();
   const [selectedMachine, setSelectedMachine] = useState("");
   const [dashboardData, setDashboardData] = useState(null);
   const [charts, setCharts] = useState({});
@@ -31,6 +33,20 @@ const Dashboard = () => {
 
   const companyName = "TechNova Industries";
   const locationName = "Bangalore, India";
+
+  // Handle back navigation
+  const handleBack = () => {
+    // Close the current tab and return to the previous tab (profile page)
+    window.close();
+    
+    // Fallback: if window.close() doesn't work (some browsers restrict it),
+    // navigate to profile page in the same tab
+    setTimeout(() => {
+      if (!window.closed) {
+        navigate("/profile");
+      }
+    }, 100);
+  };
 
   const machines = [
     { id: 1, name: "Machine_A" },
@@ -624,18 +640,19 @@ const Dashboard = () => {
   // -------------------------------
   return (
     <div className="min-h-screen bg-gray-100 p-6" onDrop={onDrop} onDragOver={(e) => e.preventDefault()}>
-      {/* HEADER */}
-      <div className="flex justify-between mb-6">
-        <h1 className="text-3xl font-bold">Welcome {currentUser?.name}</h1>
+      {/* WELCOME SECTION */}
+      <div className="mb-6 flex items-center gap-4">
         <button
-          onClick={() => {
-            localStorage.removeItem("currentUser");
-            window.location.reload();
-          }}
-          className="px-4 py-2 bg-blue-600 text-white rounded"
+          onClick={handleBack}
+          className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-gray-800 hover:bg-gray-200 rounded-lg transition-colors"
+          title="Go Back"
         >
-          Logout
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          Back
         </button>
+        <h1 className="text-3xl font-bold">Welcome {currentUser?.name}</h1>
       </div>
 
       {/* MACHINE SELECTOR */}

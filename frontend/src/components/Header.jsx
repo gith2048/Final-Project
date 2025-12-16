@@ -1,13 +1,28 @@
 import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 
 const Header = ({ isAuthenticated }) => {
   const [isOpen, setIsOpen] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+  const isDashboardPage = location.pathname === "/dashboard";
+  const isProfilePage = location.pathname === "/profile";
 
   const handleLogout = () => {
+    // Clear user data
     localStorage.removeItem("currentUser");
-    navigate("/");
+    
+    // If logging out from dashboard page, handle tab cleanup
+    if (isDashboardPage) {
+      // Signal other tabs to close/logout
+      localStorage.setItem("logout-event", Date.now().toString());
+      
+      // Open login page in current tab and replace history
+      window.location.replace("/login");
+    } else {
+      // Normal logout for other pages
+      navigate("/login");
+    }
   };
 
   return (
@@ -21,15 +36,29 @@ const Header = ({ isAuthenticated }) => {
         </Link>
 
         <nav className="hidden md:flex space-x-6 items-center">
-          <Link to="/" className="font-semibold">Home</Link>
-          <Link to="/products" className="font-semibold">Products</Link>
-          <Link to="/about" className="font-semibold">About Us</Link>
-          <Link to="/contact" className="font-semibold">Contact</Link>
+          {!isDashboardPage && (
+            <>
+              <Link to="/" className="font-semibold">Home</Link>
+              <Link to="/products" className="font-semibold">Products</Link>
+              <Link to="/about" className="font-semibold">About Us</Link>
+              <Link to="/contact" className="font-semibold">Contact</Link>
+            </>
+          )}
           {isAuthenticated ? (
             <>
-              <Link to="/profile" className="font-semibold">Profile</Link>
-
-              
+              {isDashboardPage ? (
+                <span className="font-semibold text-blue-600">Dashboard</span>
+              ) : (
+                <Link to="/profile" className="font-semibold">Profile</Link>
+              )}
+              {isDashboardPage && (
+                <button
+                  onClick={handleLogout}
+                  className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition"
+                >
+                  Logout
+                </button>
+              )}
             </>
           ) : (
             <Link to="/login" className="font-semibold">Login</Link>
@@ -54,15 +83,29 @@ const Header = ({ isAuthenticated }) => {
       <div className={`md:hidden bg-white px-4 pb-4 space-y-2 transition-all duration-300 ${
         isOpen ? "max-h-screen opacity-100" : "max-h-0 opacity-0 overflow-hidden"
       }`}>
-        <Link to="/" className="block py-2 hover:text-yellow-500 transition">Home</Link>
-        <Link to="/products" className="block py-2 hover:text-yellow-500 transition">Products</Link>
-        <Link to="/about" className="block py-2 hover:text-yellow-500 transition">About Us</Link>
-        <Link to="/contact" className="block py-2 hover:text-yellow-500 transition">Contact</Link>
+        {!isDashboardPage && (
+          <>
+            <Link to="/" className="block py-2 hover:text-yellow-500 transition">Home</Link>
+            <Link to="/products" className="block py-2 hover:text-yellow-500 transition">Products</Link>
+            <Link to="/about" className="block py-2 hover:text-yellow-500 transition">About Us</Link>
+            <Link to="/contact" className="block py-2 hover:text-yellow-500 transition">Contact</Link>
+          </>
+        )}
         {isAuthenticated ? (
           <>
-           <Link to="/profile" className="hover:text-yellow-500 transition">Profile</Link>
-
-            
+           {isDashboardPage ? (
+             <span className="block py-2 text-blue-600 font-semibold">Dashboard</span>
+           ) : (
+             <Link to="/profile" className="hover:text-yellow-500 transition">Profile</Link>
+           )}
+           {isDashboardPage && (
+             <button
+               onClick={handleLogout}
+               className="block py-2 text-red-600 hover:text-red-700 transition text-left"
+             >
+               Logout
+             </button>
+           )}
           </>
         ) : (
           <Link to="/login" className="block py-2 hover:text-yellow-500 transition">Login</Link>
