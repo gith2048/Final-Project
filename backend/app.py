@@ -120,10 +120,21 @@ class Machine(db.Model):
     __tablename__ = 'machines'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
+    motor_type = db.Column(db.String(100), nullable=False)
+    motor_id = db.Column(db.String(100), unique=True, nullable=False)
+    date_of_purchase = db.Column(db.Date, nullable=False)
+    purpose = db.Column(db.String(255), nullable=False)
     location = db.Column(db.String(100))
-    status = db.Column(db.Enum('active', 'inactive', 'maintenance'), default='active')
+    status = db.Column(db.Enum('pending', 'approved', 'rejected', 'active', 'inactive', 'maintenance'), default='pending')
     last_maintenance_date = db.Column(db.Date)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    approved_at = db.Column(db.DateTime)
+    approved_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    
+    # Relationships
+    owner = db.relationship('User', foreign_keys=[user_id], backref='owned_machines')
+    approver = db.relationship('User', foreign_keys=[approved_by])
 
 class SensorData(db.Model):
     __tablename__ = 'sensor_data'
@@ -401,6 +412,102 @@ def dashboard_data():
 def get_machines():
     machines = Machine.query.all()
     return jsonify([{"id": m.id, "name": m.name, "location": m.location, "status": m.status} for m in machines])
+
+# ---------------------------
+# MACHINE MANAGEMENT ROUTES
+# ---------------------------
+@app.route('/api/machines', methods=['GET'])
+def get_user_machines():
+    """Get machines for the current user"""
+    try:
+        user_email = request.args.get('user_email')
+        if not user_email:
+            return jsonify({"error": "User email required"}), 400
+        
+        user = User.query.filter_by(email=user_email).first()
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        
+        machines = Machine.query.filter_by(user_id=user.id, status='approved').all()
+        
+        machine_list = []
+        for machine in machines:
+            machine_list.append({
+                "id": machine.id,
+                "name": machine.name,
+                "motor_type": machine.motor_type,
+                "motor_id": machine.motor_id,
+                "date_of_purchase": machine.date_of_purchase.strftime("%Y-%m-%d") if machine.date_of_purchase else None,
+                "purpose": machine.purpose,
+                "location": machine.location,
+                "status": machine.status,
+                "created_at": machine.created_at.strftime("%Y-%m-%d %H:%M:%S") if machine.created_at else None
+            })
+        
+        return jsonify({"machines": machine_list})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/machines', methods=['POST'])
+def add_machine():
+    """Add a new machine for the current user"""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        required_fields = ['name', 'motor_type', 'motor_id', 'date_of_purchase', 'purpose', 'user_email']
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({"error": f"Missing required field: {field}"}), 400
+        
+        # Check if user exists
+        user = User.query.filter_by(email=data['user_email']).first()
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        
+        # Check if motor_id already exists
+        existing_machine = Machine.query.filter_by(motor_id=data['motor_id']).first()
+        if existing_machine:
+            return jsonify({"error": "Motor ID already exists. Please use a unique Motor ID."}), 400
+        
+        # Parse date
+        try:
+            purchase_date = datetime.strptime(data['date_of_purchase'], '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
+        
+        # Create new machine
+        new_machine = Machine(
+            name=data['name'],
+            motor_type=data['motor_type'],
+            motor_id=data['motor_id'],
+            date_of_purchase=purchase_date,
+            purpose=data['purpose'],
+            location=data.get('location', ''),
+            user_id=user.id,
+            status='pending'  # Machines start as pending approval
+        )
+        
+        db.session.add(new_machine)
+        db.session.commit()
+        
+        return jsonify({
+            "message": "Machine added successfully! It is now pending approval.",
+            "machine": {
+                "id": new_machine.id,
+                "name": new_machine.name,
+                "motor_type": new_machine.motor_type,
+                "motor_id": new_machine.motor_id,
+                "status": new_machine.status
+            }
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+# Admin approval is now done manually in phpMyAdmin
+# Simply change the 'status' field from 'pending' to 'approved' in the machines table
 
 @app.route('/api/machine-summary', methods=['GET'])
 def machine_summary():
@@ -1278,13 +1385,41 @@ def process_data_route():
         return response, 500
 
 
-@app.route("/download", methods=["GET"])
+@app.route("/download", methods=["GET", "OPTIONS"])
 def download_report():
+    # Handle preflight OPTIONS request
+    if request.method == "OPTIONS":
+        response = jsonify({"status": "ok"})
+        response.headers.add("Access-Control-Allow-Origin", request.headers.get("Origin", "*"))
+        response.headers.add("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        response.headers.add("Access-Control-Allow-Methods", "GET, OPTIONS")
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+        return response, 200
+    
     # PDF is saved in backend directory
     pdf_path = os.path.join(os.path.dirname(__file__), "report.pdf")
+    print(f"🔍 Looking for PDF at: {pdf_path}")
+    print(f"📁 PDF exists: {os.path.exists(pdf_path)}")
+    
     if not os.path.exists(pdf_path):
-        return jsonify({"error": "Report not generated"}), 404
-    return send_file(pdf_path, as_attachment=True, download_name="Machine_Report.pdf", mimetype="application/pdf")
+        print("❌ PDF file not found")
+        response = jsonify({"error": "Report not generated yet. Please try the analyze button first."})
+        response.headers.add("Access-Control-Allow-Origin", request.headers.get("Origin", "*"))
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+        return response, 404
+    
+    try:
+        print(f"✅ Sending PDF file: {pdf_path}")
+        response = send_file(pdf_path, as_attachment=True, download_name="Machine_Report.pdf", mimetype="application/pdf")
+        response.headers.add("Access-Control-Allow-Origin", request.headers.get("Origin", "*"))
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+        return response
+    except Exception as e:
+        print(f"❌ Error sending PDF: {e}")
+        response = jsonify({"error": f"Failed to send PDF: {str(e)}"})
+        response.headers.add("Access-Control-Allow-Origin", request.headers.get("Origin", "*"))
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+        return response, 500
 
 
 # ---------------------------

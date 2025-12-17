@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 
 const Header = ({ isAuthenticated }) => {
@@ -6,7 +6,6 @@ const Header = ({ isAuthenticated }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const isDashboardPage = location.pathname === "/dashboard";
-  const isProfilePage = location.pathname === "/profile";
 
   const handleLogout = () => {
     // Clear user data
@@ -25,14 +24,96 @@ const Header = ({ isAuthenticated }) => {
     }
   };
 
+  const handleReturnToProfile = () => {
+    // Close the current dashboard tab
+    window.close();
+    
+    // Fallback: if window.close() doesn't work (some browsers restrict it),
+    // navigate to profile page in the same tab
+    setTimeout(() => {
+      if (!window.closed) {
+        navigate("/profile");
+      }
+    }, 100);
+  };
+
   return (
     <header className="bg-white shadow-sm">
       <div className="max-w-7xl mx-auto flex justify-between items-center p-4">
-        <Link to="/" className="flex items-center space-x-2">
+        <Link to="/" className="flex items-center space-x-3 group relative">
+         
           
-          <span className="text-4xl font-bold bg-gradient-to-tr from-sky-500 to-fuchsia-500 bg-clip-text text-transparent">
-         Optimus-PdM
-            </span>
+          {/* Brand Text with Enhanced Styling */}
+          <div className="flex flex-col relative">
+            {/* Main Brand Name */}
+            <div className="flex items-center space-x-2">
+             <span className="text-3xl font-extrabold text-black tracking-tight relative">
+  OPTIMUS
+  {/* subtle depth for white background */}
+  <span className="absolute inset-0 text-3xl font-extrabold text-black/15 blur-[1px]">
+    OPTIMUS
+  </span>
+</span>
+
+              
+              {/* AI Chip Indicator */}
+              <div className="flex items-center space-x-1">
+                <div className="w-6 h-4 bg-gradient-to-r from-emerald-400 to-cyan-500 rounded-sm flex items-center justify-center shadow-lg">
+                  <span className="text-[8px] font-bold text-white">AI</span>
+                </div>
+                <div className="w-1.5 h-1.5 bg-gradient-to-r from-cyan-400 to-blue-500 rounded-full animate-pulse"></div>
+              </div>
+            </div>
+            
+            {/* Subtitle with Tech Styling */}
+            <div className="flex items-center space-x-1 -mt-1">
+              <span className="text-xs font-bold text-gray-500 tracking-[0.15em] uppercase">
+                Predictive
+              </span>
+              <div className="w-3 h-px bg-gradient-to-r from-gray-400 to-transparent"></div>
+              <span className="text-xs font-bold text-gray-500 tracking-[0.15em] uppercase">
+                Maintenance
+              </span>
+              <div className="w-3 h-px bg-gradient-to-r from-gray-400 to-transparent"></div>
+              <span className="text-xs font-bold bg-gradient-to-r from-cyan-500 to-blue-600 bg-clip-text text-transparent tracking-[0.15em] uppercase">
+                SYSTEM
+              </span>
+            </div>
+            
+            {/* Version Badge */}
+            {/* <div className="absolute -top-1 -right-8 hidden xl:block">
+              <span className="text-[8px] font-mono text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full border">
+                v2.1
+              </span>
+            </div> */}
+          </div>
+          
+          {/* Advanced Status Panel */}
+          <div className="hidden lg:flex items-center space-x-3 ml-4 pl-3 border-l border-gray-200">
+            {/* System Status */}
+            {/* <div className="flex flex-col items-center space-y-1">
+              <div className="flex items-center space-x-1">
+                <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse shadow-lg shadow-green-400/50"></div>
+                <div className="w-1 h-1 bg-green-300 rounded-full animate-pulse" style={{animationDelay: '0.2s'}}></div>
+                <div className="w-0.5 h-0.5 bg-green-200 rounded-full animate-pulse" style={{animationDelay: '0.4s'}}></div>
+              </div>
+              <span className="text-[9px] text-gray-400 font-mono tracking-wider">ONLINE</span>
+            </div> */}
+            
+            {/* Data Stream Indicator */}
+            {/* <div className="flex flex-col items-center space-y-1">
+              <div className="flex space-x-0.5">
+                {[...Array(3)].map((_, i) => (
+                  <div 
+                    key={i}
+                    className="w-0.5 h-3 bg-gradient-to-t from-cyan-400 to-blue-500 rounded-full animate-pulse"
+                    style={{animationDelay: `${i * 0.2}s`}}
+                  ></div>
+                ))}
+              </div>
+              <span className="text-[9px] text-gray-400 font-mono tracking-wider">SYNC</span>
+            </div> */}
+          </div>
         </Link>
 
         <nav className="hidden md:flex space-x-6 items-center">
@@ -47,7 +128,12 @@ const Header = ({ isAuthenticated }) => {
           {isAuthenticated ? (
             <>
               {isDashboardPage ? (
-                <span className="font-semibold text-blue-600">Dashboard</span>
+                <button 
+                  onClick={handleReturnToProfile}
+                  className="font-semibold text-blue-600 hover:text-blue-700 transition"
+                >
+                  Return to Profile
+                </button>
               ) : (
                 <Link to="/profile" className="font-semibold">Profile</Link>
               )}
@@ -94,7 +180,12 @@ const Header = ({ isAuthenticated }) => {
         {isAuthenticated ? (
           <>
            {isDashboardPage ? (
-             <span className="block py-2 text-blue-600 font-semibold">Dashboard</span>
+             <button 
+               onClick={handleReturnToProfile}
+               className="block py-2 text-blue-600 font-semibold hover:text-blue-700 transition text-left w-full"
+             >
+               Return to Profile
+             </button>
            ) : (
              <Link to="/profile" className="hover:text-yellow-500 transition">Profile</Link>
            )}

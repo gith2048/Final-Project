@@ -73,12 +73,37 @@ const Products = () => {
       </section>
 
       {/* Products */}
-      <section className="py-16 px-4">
-        <div className="max-w-6xl mx-auto text-center mb-12">
-          <h2 className="text-4xl font-bold mb-4">Our Solutions</h2>
-          <p className="text-gray-600 text-lg md:text-xl">Each product addresses maintenance challenges and integrates seamlessly.</p>
+      <section className="py-16 px-4 relative overflow-hidden">
+        {/* Modern Tech Background Pattern */}
+        <div className="absolute inset-0 bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 opacity-60"></div>
+        <div className="absolute inset-0" style={{
+          backgroundImage: `
+            linear-gradient(to right, rgba(99, 102, 241, 0.03) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(99, 102, 241, 0.03) 1px, transparent 1px)
+          `,
+          backgroundSize: '40px 40px'
+        }}></div>
+        
+        {/* Animated Circuit Pattern */}
+        <div className="absolute top-0 left-0 w-full h-full opacity-5">
+          <svg className="w-full h-full" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <pattern id="circuit" x="0" y="0" width="100" height="100" patternUnits="userSpaceOnUse">
+                <circle cx="25" cy="25" r="2" fill="#4F46E5"/>
+                <circle cx="75" cy="75" r="2" fill="#4F46E5"/>
+                <line x1="25" y1="25" x2="75" y2="25" stroke="#4F46E5" strokeWidth="1"/>
+                <line x1="75" y1="25" x2="75" y2="75" stroke="#4F46E5" strokeWidth="1"/>
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#circuit)"/>
+          </svg>
         </div>
-        <div className="max-w-6xl mx-auto grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-8">
+
+        <div className="max-w-6xl mx-auto text-center mb-12 relative z-10">
+          <h2 className="text-4xl font-bold mb-4 bg-gradient-to-r from-blue-600 to-indigo-700 bg-clip-text text-transparent">Our Solutions</h2>
+          <p className="text-gray-700 text-lg md:text-xl">Each product addresses maintenance challenges and integrates seamlessly.</p>
+        </div>
+        <div className="max-w-6xl mx-auto grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-8 relative z-10">
           {products.map((p) => (
             <Card key={p.id}>
               <img src={p.image} alt={p.name} loading="lazy" className="mx-auto mb-4 h-48 w-full object-cover rounded-lg" />
