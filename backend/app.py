@@ -943,6 +943,411 @@ def _generate_intelligent_recommendations(temp, speed, vib, f_temp, f_speed, f_v
     return recommendations
 
 
+@app.route('/api/industrial-standards', methods=['GET'])
+def get_industrial_standards():
+    """Get industrial threshold standards"""
+    try:
+        # These thresholds match the industrial_standards.py file
+        standards = {
+            "temperature": {
+                "normal": {"min": 20, "max": 65},
+                "warning": {"min": 65, "max": 85},
+                "critical": {"min": 85, "max": 120}
+            },
+            "vibration": {
+                "normal": {"min": 0, "max": 3.0},
+                "warning": {"min": 3.0, "max": 7.0},
+                "critical": {"min": 7.0, "max": 15.0}
+            },
+            "speed": {
+                "normal": {"min": 800, "max": 1150},
+                "warning": {"min": 1150, "max": 1350},
+                "critical": {"min": 1350, "max": 2000}
+            }
+        }
+        return jsonify(standards)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# ---------------------------
+# Manual Analysis Input Endpoint - Enhanced for Training and Prediction
+# ---------------------------
+@app.route("/api/manual-analysis", methods=["POST", "OPTIONS"])
+def manual_analysis():
+    """Enhanced manual analysis endpoint with proper model training and predictions"""
+    if request.method == "OPTIONS":
+        response = jsonify({"status": "ok"})
+        response.headers.add("Access-Control-Allow-Origin", request.headers.get("Origin", "*"))
+        response.headers.add("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        response.headers.add("Access-Control-Allow-Methods", "POST, OPTIONS")
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+        return response, 200
+    
+    try:
+        payload = request.get_json(force=True) or {}
+        
+        # Extract manual input values
+        temperature = float(payload.get("temperature", 0))
+        raw_vibration = float(payload.get("raw_vibration", 0))
+        smooth_vibration = float(payload.get("smooth_vibration", 0))
+        speed = float(payload.get("speed", 0))
+        
+        # Validate input values (allow 0 for temperature, but not negative speeds)
+        validation_errors = []
+        if temperature < -50 or temperature > 200:
+            validation_errors.append("Temperature must be between -50°C and 200°C")
+        if raw_vibration < 0 or raw_vibration > 50:
+            validation_errors.append("Raw vibration must be between 0 and 50 mm/s")
+        if smooth_vibration < 0 or smooth_vibration > 50:
+            validation_errors.append("Smooth vibration must be between 0 and 50 mm/s")
+        if speed <= 0 or speed > 5000:
+            validation_errors.append("Speed must be between 1 and 5000 RPM")
+        
+        if validation_errors:
+            return jsonify({
+                "error": "Invalid input values",
+                "validation_errors": validation_errors,
+                "status": "error"
+            }), 400
+        
+        # Use smooth vibration for model predictions (as it's more stable)
+        # But analyze both for comprehensive assessment
+        vibration_for_models = smooth_vibration
+        
+        # Prepare features for models [temperature, vibration, speed]
+        features = [temperature, vibration_for_models, speed]
+        
+        # ---------------------------
+        # LSTM PREDICTION (Next 5-10 minutes)
+        # ---------------------------
+        lstm_prediction = None
+        try:
+            if lstm_model is not None and lstm_scaler is not None:
+                # Create a sequence for LSTM (use current values repeated for sequence)
+                seq_len = 10
+                sequence = np.array([[temperature, vibration_for_models, speed] for _ in range(seq_len)])
+                scaled_seq = lstm_scaler.transform(sequence)
+                
+                with lstm_lock:
+                    # Predict next values (5-10 minutes ahead)
+                    pred = lstm_model.predict(scaled_seq.reshape(1, seq_len, 3), verbose=0)[0]
+                
+                # Inverse transform to get actual values
+                predicted_values = lstm_scaler.inverse_transform([pred])[0]
+                
+                lstm_prediction = {
+                    "temperature": max(0, float(predicted_values[0])),
+                    "vibration": max(0, float(predicted_values[1])),
+                    "speed": max(0, float(predicted_values[2]))
+                }
+        except Exception as e:
+            print(f"❌ LSTM prediction error: {e}")
+            lstm_prediction = {
+                "temperature": temperature,
+                "vibration": vibration_for_models,
+                "speed": speed
+            }
+        
+        # ---------------------------
+        # RANDOM FOREST CLASSIFICATION
+        # ---------------------------
+        rf_result = None
+        try:
+            if rf_model is not None and rf_scaler is not None:
+                features_scaled = rf_scaler.transform([features])
+                rf_pred = int(rf_model.predict(features_scaled)[0])
+                
+                # Map predictions to conditions
+                if rf_pred == 0:
+                    condition = "Critical"
+                    risk_level = "High"
+                    description = "Machine condition indicates critical failure risk"
+                elif rf_pred == 2:
+                    condition = "Warning"
+                    risk_level = "Medium"
+                    description = "Machine condition shows warning signs"
+                else:
+                    condition = "Normal"
+                    risk_level = "Low"
+                    description = "Machine condition appears healthy"
+                
+                rf_result = {
+                    "condition": condition,
+                    "risk_level": risk_level,
+                    "description": description,
+                    "prediction_code": rf_pred
+                }
+        except Exception as e:
+            print(f"❌ Random Forest error: {e}")
+            rf_result = {
+                "condition": "Unknown",
+                "risk_level": "Unknown",
+                "description": f"Model error: {str(e)}",
+                "prediction_code": -1
+            }
+        
+        # ---------------------------
+        # ISOLATION FOREST ANOMALY DETECTION
+        # ---------------------------
+        iso_result = None
+        try:
+            if iso_model is not None and rf_scaler is not None:
+                features_scaled = rf_scaler.transform([features])
+                iso_pred = int(iso_model.predict(features_scaled)[0])
+                iso_score = float(iso_model.decision_function(features_scaled)[0])
+                
+                if iso_pred == -1:
+                    anomaly_status = "Anomaly Detected"
+                    severity = "High" if iso_score < -0.1 else "Medium"
+                    description = f"Unusual pattern detected (score: {iso_score:.3f})"
+                else:
+                    anomaly_status = "Normal Pattern"
+                    severity = "Low"
+                    description = "Values within expected operational range"
+                
+                iso_result = {
+                    "anomaly_status": anomaly_status,
+                    "severity": severity,
+                    "description": description,
+                    "anomaly_score": iso_score
+                }
+        except Exception as e:
+            print(f"❌ Isolation Forest error: {e}")
+            iso_result = {
+                "anomaly_status": "Unknown",
+                "severity": "Unknown",
+                "description": f"Model error: {str(e)}",
+                "anomaly_score": 0.0
+            }
+        
+        # ---------------------------
+        # PARAMETER ANALYSIS & AFFECTED PARTS
+        # ---------------------------
+        parameter_analysis = []
+        affected_parts = []
+        solutions = []
+        
+        # Temperature Analysis
+        if temperature > 95:
+            parameter_analysis.append({
+                "parameter": "Temperature",
+                "status": "Critical",
+                "value": temperature,
+                "threshold": 95,
+                "message": "Critical temperature - immediate shutdown required"
+            })
+            affected_parts.extend([
+                "Bearings (thermal expansion and lubrication breakdown)",
+                "Motor windings (insulation damage)",
+                "Seals and gaskets (thermal degradation)",
+                "Cooling system components"
+            ])
+            solutions.extend([
+                "Immediate shutdown and cooling period",
+                "Inspect cooling system for blockages or failures",
+                "Check coolant levels and circulation",
+                "Verify bearing lubrication",
+                "Replace damaged thermal components"
+            ])
+        elif temperature > 85:
+            parameter_analysis.append({
+                "parameter": "Temperature",
+                "status": "Warning",
+                "value": temperature,
+                "threshold": 85,
+                "message": "High temperature - monitor closely"
+            })
+            affected_parts.extend([
+                "Bearing lubrication (accelerated degradation)",
+                "Motor efficiency (reduced performance)"
+            ])
+            solutions.extend([
+                "Reduce operational load by 20-30%",
+                "Clean air filters and cooling vents",
+                "Check cooling system operation"
+            ])
+        
+        # Vibration Analysis (analyze both raw and smooth)
+        max_vibration = max(raw_vibration, smooth_vibration)
+        if max_vibration > 10:
+            parameter_analysis.append({
+                "parameter": "Vibration",
+                "status": "Critical",
+                "value": max_vibration,
+                "threshold": 10,
+                "message": f"Critical vibration - Raw: {raw_vibration:.2f}, Smooth: {smooth_vibration:.2f} mm/s"
+            })
+            affected_parts.extend([
+                "Main bearings (wear, pitting, seizure risk)",
+                "Shaft alignment (misalignment damage)",
+                "Coupling components (wear and failure)",
+                "Foundation bolts (loosening)",
+                "Rotor balance (imbalance effects)"
+            ])
+            solutions.extend([
+                "Emergency shutdown - do not restart",
+                "Replace all bearings immediately",
+                "Check and correct shaft alignment",
+                "Inspect and tighten all mounting bolts",
+                "Balance rotor if necessary"
+            ])
+        elif max_vibration > 7:
+            parameter_analysis.append({
+                "parameter": "Vibration",
+                "status": "Warning",
+                "value": max_vibration,
+                "threshold": 7,
+                "message": f"High vibration - Raw: {raw_vibration:.2f}, Smooth: {smooth_vibration:.2f} mm/s"
+            })
+            affected_parts.extend([
+                "Bearings (accelerated wear)",
+                "Shaft alignment (developing misalignment)"
+            ])
+            solutions.extend([
+                "Schedule bearing inspection within 48 hours",
+                "Check shaft alignment",
+                "Verify mounting bolt torque"
+            ])
+        
+        # Add vibration comparison analysis
+        vibration_difference = abs(raw_vibration - smooth_vibration)
+        if vibration_difference > 2.0:
+            parameter_analysis.append({
+                "parameter": "Vibration Variance",
+                "status": "Warning",
+                "value": vibration_difference,
+                "threshold": 2.0,
+                "message": f"High variance between raw ({raw_vibration:.2f}) and smooth ({smooth_vibration:.2f}) vibration"
+            })
+            affected_parts.extend([
+                "Vibration sensors (calibration issues)",
+                "Signal processing system (filtering problems)"
+            ])
+            solutions.extend([
+                "Check vibration sensor calibration",
+                "Inspect signal processing filters",
+                "Verify sensor mounting and connections"
+            ])
+        
+        # Speed Analysis
+        if speed > 1500:
+            parameter_analysis.append({
+                "parameter": "Speed",
+                "status": "Critical",
+                "value": speed,
+                "threshold": 1500,
+                "message": "Critical overspeed - runaway condition"
+            })
+            affected_parts.extend([
+                "Motor controller (malfunction risk)",
+                "Speed sensors (failure or drift)",
+                "Mechanical components (overstress)",
+                "Safety systems (governor failure)"
+            ])
+            solutions.extend([
+                "Press emergency stop immediately",
+                "Disconnect power supply",
+                "Inspect motor controller for faults",
+                "Check speed sensor calibration",
+                "Test safety shutdown systems"
+            ])
+        elif speed > 1350:
+            parameter_analysis.append({
+                "parameter": "Speed",
+                "status": "Warning",
+                "value": speed,
+                "threshold": 1350,
+                "message": "High speed - operating above design limits"
+            })
+            affected_parts.extend([
+                "Motor controller (potential drift)",
+                "Mechanical components (increased wear)"
+            ])
+            solutions.extend([
+                "Reduce load to bring speed within limits",
+                "Check speed controller settings",
+                "Verify load distribution"
+            ])
+        
+        # ---------------------------
+        # OVERALL CONDITION ASSESSMENT
+        # ---------------------------
+        critical_count = len([p for p in parameter_analysis if p["status"] == "Critical"])
+        warning_count = len([p for p in parameter_analysis if p["status"] == "Warning"])
+        
+        if critical_count > 0:
+            overall_condition = "Critical"
+            priority = "Immediate Action Required"
+            condition_color = "red"
+        elif warning_count > 0:
+            overall_condition = "Warning"
+            priority = "Action Required Within 24 Hours"
+            condition_color = "orange"
+        else:
+            overall_condition = "Normal"
+            priority = "Continue Standard Monitoring"
+            condition_color = "green"
+        
+        # ---------------------------
+        # RESPONSE STRUCTURE
+        # ---------------------------
+        response_data = {
+            "status": "success",
+            "input_values": {
+                "temperature": temperature,
+                "raw_vibration": raw_vibration,
+                "smooth_vibration": smooth_vibration,
+                "speed": speed
+            },
+            "predictions": {
+                "lstm_forecast": lstm_prediction,
+                "time_horizon": "5-10 minutes ahead"
+            },
+            "model_analysis": {
+                "random_forest": rf_result,
+                "isolation_forest": iso_result
+            },
+            "parameter_analysis": parameter_analysis,
+            "affected_parts": list(set(affected_parts)),  # Remove duplicates
+            "solutions": list(set(solutions)),  # Remove duplicates
+            "overall_assessment": {
+                "condition": overall_condition,
+                "priority": priority,
+                "color": condition_color,
+                "critical_parameters": critical_count,
+                "warning_parameters": warning_count
+            },
+            "chart_data": {
+                "actual_values": [temperature, raw_vibration, smooth_vibration, speed],
+                "predicted_values": [
+                    lstm_prediction["temperature"] if lstm_prediction else temperature,
+                    lstm_prediction["vibration"] if lstm_prediction else raw_vibration,
+                    lstm_prediction["vibration"] if lstm_prediction else smooth_vibration,
+                    lstm_prediction["speed"] if lstm_prediction else speed
+                ],
+                "parameter_labels": ["Temperature (°C)", "Raw Vibration (mm/s)", "Smooth Vibration (mm/s)", "Speed (RPM)"]
+            }
+        }
+        
+        response = jsonify(response_data)
+        response.headers.add("Access-Control-Allow-Origin", request.headers.get("Origin", "*"))
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+        return response, 200
+        
+    except Exception as e:
+        print(f"❌ Manual analysis error: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        response = jsonify({
+            "status": "error",
+            "error": str(e),
+            "message": "Analysis failed. Please check your input values and try again."
+        })
+        response.headers.add("Access-Control-Allow-Origin", request.headers.get("Origin", "*"))
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+        return response, 500
+
 # ---------------------------
 # main analyze endpoint (updated to use 3 params)
 # ---------------------------
@@ -1421,6 +1826,438 @@ def download_report():
         response.headers.add("Access-Control-Allow-Credentials", "true")
         return response, 500
 
+
+# ---------------------------
+# RETRAIN AND PREDICT ENDPOINT - Enhanced Training with User-Selected Period
+# ---------------------------
+@app.route("/api/retrain-and-predict", methods=["POST", "OPTIONS"])
+def retrain_and_predict():
+    """Retrain LSTM model on user-specified hours of data and provide enhanced predictions"""
+    if request.method == "OPTIONS":
+        response = jsonify({"status": "ok"})
+        response.headers.add("Access-Control-Allow-Origin", request.headers.get("Origin", "*"))
+        response.headers.add("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        response.headers.add("Access-Control-Allow-Methods", "POST, OPTIONS")
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+        return response, 200
+    
+    try:
+        payload = request.get_json(force=True) or {}
+        
+        # Extract input values
+        temperature = float(payload.get("temperature", 0))
+        raw_vibration = float(payload.get("raw_vibration", 0))
+        smooth_vibration = float(payload.get("smooth_vibration", 0))
+        speed = float(payload.get("speed", 0))
+        training_hours = int(payload.get("training_hours", 3))
+        
+        # Validate inputs
+        if temperature <= 0 or raw_vibration < 0 or smooth_vibration < 0 or speed <= 0:
+            return jsonify({
+                "error": "Invalid input values",
+                "status": "error"
+            }), 400
+        
+        if training_hours < 1 or training_hours > 24:
+            return jsonify({
+                "error": "Training hours must be between 1 and 24",
+                "status": "error"
+            }), 400
+        
+        # ---------------------------
+        # LOAD AND PREPARE TRAINING DATA
+        # ---------------------------
+        sensor_file = find_sensor_file()
+        if not sensor_file:
+            return jsonify({
+                "error": "No sensor data file found for training",
+                "status": "error"
+            }), 404
+        
+        try:
+            # Load sensor data
+            raw_rows = load_raw_sensor_rows(sensor_file)
+            
+            # Convert to DataFrame for easier processing
+            df_data = []
+            for row in raw_rows:
+                try:
+                    timestamp = row.get("timestamp")
+                    if isinstance(timestamp, (int, float)):
+                        timestamp = pd.to_datetime(timestamp, unit='s')
+                    elif isinstance(timestamp, str):
+                        timestamp = pd.to_datetime(timestamp)
+                    else:
+                        timestamp = pd.Timestamp.now()
+                    
+                    df_data.append({
+                        'timestamp': timestamp,
+                        'temperature': float(row.get("temperature", 0)),
+                        'vibration': float(row.get("vibration", 0)),
+                        'speed': float(row.get("speed", 0))
+                    })
+                except Exception as e:
+                    print(f"Skipping invalid row: {e}")
+                    continue
+            
+            if len(df_data) < 50:
+                return jsonify({
+                    "error": f"Insufficient data for training. Need at least 50 points, got {len(df_data)}",
+                    "status": "error"
+                }), 400
+            
+            df = pd.DataFrame(df_data)
+            df = df.sort_values('timestamp')
+            
+            # Filter to last N hours
+            cutoff_time = df['timestamp'].max() - pd.Timedelta(hours=training_hours)
+            recent_df = df[df['timestamp'] >= cutoff_time].copy()
+            
+            if len(recent_df) < 20:
+                return jsonify({
+                    "error": f"Insufficient recent data. Only {len(recent_df)} points in last {training_hours} hours",
+                    "status": "error"
+                }), 400
+            
+            print(f"🎯 Training on {len(recent_df)} data points from last {training_hours} hours")
+            
+        except Exception as e:
+            return jsonify({
+                "error": f"Failed to load training data: {str(e)}",
+                "status": "error"
+            }), 500
+        
+        # ---------------------------
+        # RETRAIN LSTM MODEL
+        # ---------------------------
+        try:
+            from sklearn.preprocessing import MinMaxScaler
+            from tensorflow.keras.models import Sequential
+            from tensorflow.keras.layers import LSTM, Dense
+            import tensorflow as tf
+            
+            # Prepare training data
+            features = ["temperature", "vibration", "speed"]
+            training_data = recent_df[features].values.astype(float)
+            
+            # Scale the data
+            new_scaler = MinMaxScaler()
+            scaled_data = new_scaler.fit_transform(training_data)
+            
+            # Create sequences for LSTM
+            def create_sequences(data, seq_len=10):
+                X, y = [], []
+                for i in range(len(data) - seq_len):
+                    X.append(data[i:i+seq_len])
+                    y.append(data[i+seq_len])
+                return np.array(X), np.array(y)
+            
+            SEQ_LEN = 10
+            if len(scaled_data) <= SEQ_LEN:
+                return jsonify({
+                    "error": f"Need at least {SEQ_LEN + 1} data points for training, got {len(scaled_data)}",
+                    "status": "error"
+                }), 400
+            
+            X, y = create_sequences(scaled_data, SEQ_LEN)
+            X = X.reshape((X.shape[0], SEQ_LEN, len(features)))
+            
+            print(f"🔄 Training LSTM with {X.shape[0]} sequences...")
+            
+            # Build and train model
+            with lstm_lock:
+                new_model = Sequential()
+                new_model.add(LSTM(64, return_sequences=False, input_shape=(SEQ_LEN, len(features))))
+                new_model.add(Dense(32, activation="relu"))
+                new_model.add(Dense(len(features)))
+                new_model.compile(optimizer="adam", loss="mse")
+                
+                # Train with fewer epochs for faster response
+                epochs = min(30, max(10, len(X) // 5))  # Adaptive epochs based on data size
+                new_model.fit(X, y, epochs=epochs, batch_size=min(16, len(X)), verbose=0)
+                
+                # Update global model and scaler
+                global lstm_model, lstm_scaler
+                lstm_model = new_model
+                lstm_scaler = new_scaler
+            
+            print(f"✅ LSTM retrained successfully with {epochs} epochs")
+            
+        except Exception as e:
+            return jsonify({
+                "error": f"Failed to retrain model: {str(e)}",
+                "status": "error"
+            }), 500
+        
+        # ---------------------------
+        # ENHANCED PREDICTIONS WITH RETRAINED MODEL
+        # ---------------------------
+        try:
+            # Use smooth vibration for model predictions
+            vibration_for_models = smooth_vibration
+            current_values = [temperature, vibration_for_models, speed]
+            
+            # Create sequence for prediction
+            seq_len = 10
+            sequence = np.array([current_values for _ in range(seq_len)])
+            scaled_seq = lstm_scaler.transform(sequence)
+            
+            with lstm_lock:
+                # Predict next values (5-10 minutes ahead)
+                pred = lstm_model.predict(scaled_seq.reshape(1, seq_len, 3), verbose=0)[0]
+            
+            # Inverse transform to get actual values
+            predicted_values = lstm_scaler.inverse_transform([pred])[0]
+            
+            enhanced_prediction = {
+                "temperature": max(0, float(predicted_values[0])),
+                "vibration": max(0, float(predicted_values[1])),
+                "speed": max(0, float(predicted_values[2]))
+            }
+            
+            # Generate multiple future predictions (next 30 minutes in 5-minute intervals)
+            future_predictions = []
+            current_seq = scaled_seq.reshape(seq_len, 3)
+            
+            for step in range(6):  # 6 steps = 30 minutes
+                with lstm_lock:
+                    next_pred = lstm_model.predict(current_seq.reshape(1, seq_len, 3), verbose=0)[0]
+                
+                # Inverse transform
+                next_values = lstm_scaler.inverse_transform([next_pred])[0]
+                
+                future_predictions.append({
+                    "time_offset": f"+{(step + 1) * 5} min",
+                    "temperature": max(0, float(next_values[0])),
+                    "vibration": max(0, float(next_values[1])),
+                    "speed": max(0, float(next_values[2]))
+                })
+                
+                # Update sequence for next prediction
+                current_seq = np.vstack([current_seq[1:], next_pred.reshape(1, 3)])
+            
+        except Exception as e:
+            return jsonify({
+                "error": f"Failed to generate predictions: {str(e)}",
+                "status": "error"
+            }), 500
+        
+        # ---------------------------
+        # ENHANCED ANALYSIS WITH RETRAINED MODEL
+        # ---------------------------
+        try:
+            # Run enhanced analysis with the retrained model
+            features_for_analysis = [temperature, vibration_for_models, speed]
+            
+            # Random Forest Analysis (if available)
+            rf_result = None
+            if rf_model is not None and rf_scaler is not None:
+                features_scaled = rf_scaler.transform([features_for_analysis])
+                rf_pred = int(rf_model.predict(features_scaled)[0])
+                
+                if rf_pred == 0:
+                    condition = "Critical"
+                    risk_level = "High"
+                    description = "Retrained model confirms critical failure risk"
+                elif rf_pred == 2:
+                    condition = "Warning"
+                    risk_level = "Medium"
+                    description = "Retrained model shows warning signs"
+                else:
+                    condition = "Normal"
+                    risk_level = "Low"
+                    description = "Retrained model indicates healthy condition"
+                
+                rf_result = {
+                    "condition": condition,
+                    "risk_level": risk_level,
+                    "description": description,
+                    "prediction_code": rf_pred
+                }
+            
+            # Isolation Forest Analysis (if available)
+            iso_result = None
+            if iso_model is not None and rf_scaler is not None:
+                features_scaled = rf_scaler.transform([features_for_analysis])
+                iso_pred = int(iso_model.predict(features_scaled)[0])
+                iso_score = float(iso_model.decision_function(features_scaled)[0])
+                
+                if iso_pred == -1:
+                    anomaly_status = "Anomaly Detected"
+                    severity = "High" if iso_score < -0.1 else "Medium"
+                    description = f"Retrained analysis detects anomaly (score: {iso_score:.3f})"
+                else:
+                    anomaly_status = "Normal Pattern"
+                    severity = "Low"
+                    description = "Retrained analysis shows normal patterns"
+                
+                iso_result = {
+                    "anomaly_status": anomaly_status,
+                    "severity": severity,
+                    "description": description,
+                    "anomaly_score": iso_score
+                }
+            
+            # Enhanced condition assessment
+            critical_count = 0
+            warning_count = 0
+            parameter_analysis = []
+            
+            # Temperature analysis
+            if temperature > 95:
+                critical_count += 1
+                parameter_analysis.append({
+                    "parameter": "Temperature",
+                    "status": "Critical",
+                    "value": temperature,
+                    "threshold": 95,
+                    "message": "Critical temperature detected by retrained model"
+                })
+            elif temperature > 85:
+                warning_count += 1
+                parameter_analysis.append({
+                    "parameter": "Temperature",
+                    "status": "Warning",
+                    "value": temperature,
+                    "threshold": 85,
+                    "message": "High temperature detected by retrained model"
+                })
+            
+            # Vibration analysis
+            max_vibration = max(raw_vibration, smooth_vibration)
+            if max_vibration > 10:
+                critical_count += 1
+                parameter_analysis.append({
+                    "parameter": "Vibration",
+                    "status": "Critical",
+                    "value": max_vibration,
+                    "threshold": 10,
+                    "message": f"Critical vibration detected (Raw: {raw_vibration:.2f}, Smooth: {smooth_vibration:.2f})"
+                })
+            elif max_vibration > 7:
+                warning_count += 1
+                parameter_analysis.append({
+                    "parameter": "Vibration",
+                    "status": "Warning",
+                    "value": max_vibration,
+                    "threshold": 7,
+                    "message": f"High vibration detected (Raw: {raw_vibration:.2f}, Smooth: {smooth_vibration:.2f})"
+                })
+            
+            # Speed analysis
+            if speed > 1500:
+                critical_count += 1
+                parameter_analysis.append({
+                    "parameter": "Speed",
+                    "status": "Critical",
+                    "value": speed,
+                    "threshold": 1500,
+                    "message": "Critical overspeed detected by retrained model"
+                })
+            elif speed > 1350:
+                warning_count += 1
+                parameter_analysis.append({
+                    "parameter": "Speed",
+                    "status": "Warning",
+                    "value": speed,
+                    "threshold": 1350,
+                    "message": "High speed detected by retrained model"
+                })
+            
+            # Overall assessment
+            if critical_count > 0:
+                overall_condition = "Critical"
+                priority = "Immediate Action Required"
+                condition_color = "red"
+            elif warning_count > 0:
+                overall_condition = "Warning"
+                priority = "Action Required Within 24 Hours"
+                condition_color = "orange"
+            else:
+                overall_condition = "Normal"
+                priority = "Continue Standard Monitoring"
+                condition_color = "green"
+            
+        except Exception as e:
+            print(f"❌ Analysis error: {e}")
+            # Fallback analysis
+            overall_condition = "Normal"
+            priority = "Continue Standard Monitoring"
+            condition_color = "green"
+            parameter_analysis = []
+            rf_result = None
+            iso_result = None
+        
+        # ---------------------------
+        # RESPONSE WITH ENHANCED PREDICTIONS
+        # ---------------------------
+        response_data = {
+            "status": "success",
+            "training_info": {
+                "training_hours": training_hours,
+                "data_points_used": len(recent_df),
+                "training_period": f"Last {training_hours} hours",
+                "model_updated": True
+            },
+            "input_values": {
+                "temperature": temperature,
+                "raw_vibration": raw_vibration,
+                "smooth_vibration": smooth_vibration,
+                "speed": speed
+            },
+            "predictions": {
+                "lstm_forecast": enhanced_prediction,
+                "time_horizon": "5-10 minutes ahead",
+                "future_timeline": future_predictions
+            },
+            "model_analysis": {
+                "random_forest": rf_result,
+                "isolation_forest": iso_result
+            },
+            "parameter_analysis": parameter_analysis,
+            "overall_assessment": {
+                "condition": overall_condition,
+                "priority": priority,
+                "color": condition_color,
+                "critical_parameters": critical_count,
+                "warning_parameters": warning_count
+            },
+            "chart_data": {
+                "actual_values": [temperature, raw_vibration, smooth_vibration, speed],
+                "predicted_values": [
+                    enhanced_prediction["temperature"],
+                    enhanced_prediction["vibration"],
+                    enhanced_prediction["vibration"],
+                    enhanced_prediction["speed"]
+                ],
+                "parameter_labels": ["Temperature (°C)", "Raw Vibration (mm/s)", "Smooth Vibration (mm/s)", "Speed (RPM)"]
+            },
+            "enhanced_features": {
+                "custom_training_period": True,
+                "real_time_retraining": True,
+                "multi_step_predictions": True,
+                "adaptive_model": True
+            }
+        }
+        
+        response = jsonify(response_data)
+        response.headers.add("Access-Control-Allow-Origin", request.headers.get("Origin", "*"))
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+        return response, 200
+        
+    except Exception as e:
+        print(f"❌ Retrain and predict error: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        response = jsonify({
+            "status": "error",
+            "error": str(e),
+            "message": "Failed to retrain model and generate predictions. Please try again."
+        })
+        response.headers.add("Access-Control-Allow-Origin", request.headers.get("Origin", "*"))
+        response.headers.add("Access-Control-Allow-Credentials", "true")
+        return response, 500
 
 # ---------------------------
 # Run

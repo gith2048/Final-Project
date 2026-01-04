@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import Chart from "chart.js/auto";
 import ChartDataLabels from "chartjs-plugin-datalabels";
@@ -10,6 +10,7 @@ import GaugeCard from "../pages/GaugeCard";
 import SliderControl from "../pages/SliderControl";
 import ColorPickerCard from "../pages/ColorPickerCard";
 import MachineForm from "../components/MachineForm";
+import AnalysisInputModal from "../components/AnalysisInputModal";
 
 Chart.register(ChartDataLabels);
 
@@ -96,6 +97,7 @@ const Dashboard = () => {
   const [emailSent, setEmailSent] = useState(false);
   const [selectedChartType, setSelectedChartType] = useState("line"); // New state for chart selection
   const [isDropdownOpen, setIsDropdownOpen] = useState(false); // State for dropdown visibility
+  const [showAnalysisModal, setShowAnalysisModal] = useState(false); // State for analysis input modal
   
   // New states for machine management
   const [userMachines, setUserMachines] = useState([]);
@@ -166,13 +168,14 @@ const Dashboard = () => {
     }
   };
 
-  // Calculate next service date based on machine condition
-  const calculateNextServiceDate = () => {
+  // Calculate next service date based on machine condition (memoized)
+  const calculateNextServiceDate = useMemo(() => {
     if (!averages.temperature || !averages.vibration || !averages.speed) {
       return {
         date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Default 30 days
         urgency: 'normal',
-        reason: 'Standard maintenance schedule'
+        reason: 'Standard maintenance schedule',
+        daysUntil: 30
       };
     }
 
@@ -192,19 +195,19 @@ const Dashboard = () => {
     }
     // High risk conditions - service within 3-7 days
     else if (temp >= 75 || vib >= 5 || speed >= 1250) {
-      daysUntilService = Math.random() < 0.5 ? 3 : 7;
+      daysUntilService = 5; // Fixed to 5 days instead of random
       urgency = 'high';
       reason = 'High parameter levels - early service recommended';
     }
     // Medium risk conditions - service within 10-15 days
     else if (temp >= 65 || vib >= 3 || speed >= 1150) {
-      daysUntilService = Math.floor(Math.random() * 6) + 10; // 10-15 days
+      daysUntilService = 12; // Fixed to 12 days instead of random
       urgency = 'medium';
       reason = 'Elevated parameters - schedule service soon';
     }
-    // Good conditions - standard 20-30 day schedule
+    // Good conditions - standard 25 day schedule
     else {
-      daysUntilService = Math.floor(Math.random() * 11) + 20; // 20-30 days
+      daysUntilService = 25; // Fixed to 25 days instead of random
       urgency = 'normal';
       reason = 'Machine in good condition - standard schedule';
     }
@@ -217,7 +220,7 @@ const Dashboard = () => {
       reason,
       daysUntil: daysUntilService
     };
-  };
+  }, [averages.temperature, averages.vibration, averages.speed]); // Only recalculate when averages change
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -492,21 +495,10 @@ const Dashboard = () => {
   // GET HEALTH STATUS TEXT
   // -------------------------------
   const getHealthStatusText = (percentage, machineName) => {
-    // For selected machine with real data, use more detailed status
-    if (selectedMachine === machineName && averages.temperature && averages.vibration && averages.speed) {
-      if (percentage >= 90) return 'Excellent';
-      if (percentage >= 80) return 'Healthy';
-      if (percentage >= 70) return 'Good';
-      if (percentage >= 60) return 'Fair';
-      if (percentage >= 50) return 'Poor';
-      if (percentage >= 30) return 'Risky';
-      return 'Critical';
-    }
-    
-    // For non-selected machines, use simpler status
+    // Use consistent labels for all machines: Healthy, Medium, High, Critical
     if (percentage >= 80) return 'Healthy';
     if (percentage >= 60) return 'Medium';
-    if (percentage >= 40) return 'Risky';
+    if (percentage >= 40) return 'High';
     return 'Critical';
   };
 
@@ -965,6 +957,59 @@ const Dashboard = () => {
     }
   };
 
+  // Handle manual analysis input
+  const handleManualAnalysis = async (sensorData) => {
+    try {
+      // Create a payload similar to the drag-drop analysis
+      const payload = {
+        chartType: 'manual_input',
+        data: {
+          temperature: [sensorData.temperature],
+          vibration: [sensorData.vibration],
+          speed: [sensorData.speed]
+        },
+        email: currentUser?.email,
+        machine_id: selectedMachine || 'Manual_Input',
+        manual_input: true
+      };
+
+      // Send to the analyze endpoint
+      const res = await axios.post("http://localhost:5000/chat/analyze", payload);
+      
+      // Update recommendation state
+      setRecommendation(res.data);
+      
+      // Update health summary
+      if (res.data.overall_summary) {
+        setHealthSummary(res.data.overall_summary);
+      }
+
+      // Notify chatbot if available
+      if (window.chatbot && typeof window.chatbot.say === "function") {
+        const { overall_summary, recommendations } = res.data;
+        let message = `🧠 Manual Analysis Complete!\n\n${overall_summary}`;
+        
+        if (recommendations?.summary) {
+          message += `\n\n💡 ${recommendations.summary}`;
+        }
+        
+        window.chatbot.say(message);
+      }
+
+      console.log('Manual analysis completed:', res.data);
+    } catch (error) {
+      console.error('Manual analysis failed:', error);
+      
+      // Show error in chatbot
+      if (window.chatbot && typeof window.chatbot.say === "function") {
+        window.chatbot.say("❌ Manual analysis failed. Please check your connection and try again.");
+      }
+      
+      // You could also show an error toast or alert here
+      alert('Analysis failed. Please try again.');
+    }
+  };
+
   // -------------------------------
   // UI START
   // -------------------------------
@@ -1041,15 +1086,17 @@ const Dashboard = () => {
             {/* User's Machine Cards */}
             {userMachines.map((machine) => {
               const getHealthColor = (percentage) => {
-                if (percentage >= 80) return 'stroke-green-500';
-                if (percentage >= 60) return 'stroke-yellow-500';
-                return 'stroke-red-500';
+                if (percentage >= 80) return 'stroke-green-500';    // Healthy
+                if (percentage >= 60) return 'stroke-yellow-500';   // Medium
+                if (percentage >= 40) return 'stroke-orange-500';   // High
+                return 'stroke-red-500';                            // Critical
               };
 
               const getHealthBgColor = (percentage) => {
-                if (percentage >= 80) return 'text-green-600';
-                if (percentage >= 60) return 'text-yellow-600';
-                return 'text-red-600';
+                if (percentage >= 80) return 'text-green-600';      // Healthy
+                if (percentage >= 60) return 'text-yellow-600';     // Medium
+                if (percentage >= 40) return 'text-orange-600';     // High
+                return 'text-red-600';                              // Critical
               };
 
               // Use machine ID as identifier for user machines
@@ -1206,69 +1253,84 @@ const Dashboard = () => {
             </div>
             
             {/* Chart Selection Dropdown */}
-            <div className="relative" ref={dropdownRef}>
+            <div className="flex items-center space-x-4">
+              {/* Analysis Input Button */}
               <button
-                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                className="bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-left shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-all duration-200 min-w-[200px]"
+                onClick={() => setShowAnalysisModal(true)}
+                className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg font-semibold hover:from-green-600 hover:to-emerald-700 transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105"
+                title="Manual sensor input analysis"
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-base">
-                      {selectedChartType === "line" && "📈"}
-                      {selectedChartType === "bar" && "📊"}
-                      {selectedChartType === "pie" && "🥧"}
-                    </span>
-                    <span className="font-medium text-gray-900 text-sm">
-                      {selectedChartType === "line" && "Temperature & Vibration"}
-                      {selectedChartType === "bar" && "Speed Chart"}
-                      {selectedChartType === "pie" && "Load Distribution"}
-                    </span>
-                  </div>
-                  <svg 
-                    className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} 
-                    fill="none" 
-                    stroke="currentColor" 
-                    viewBox="0 0 24 24"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </div>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                </svg>
+                <span>Analysis Input</span>
               </button>
 
-              {/* Dropdown Options */}
-              {isDropdownOpen && (
-                <div className="absolute z-20 right-0 mt-2 w-64 bg-white border border-gray-200 rounded-lg shadow-lg">
-                  {[
-                    { value: "line", label: "Temperature & Vibration", icon: "📈", desc: "Line chart analysis" },
-                    { value: "bar", label: "Speed Chart", icon: "📊", desc: "Bar chart visualization" },
-                    { value: "pie", label: "Load Distribution", icon: "🥧", desc: "Pie chart breakdown" }
-                  ].map((option) => (
-                    <button
-                      key={option.value}
-                      onClick={() => {
-                        setSelectedChartType(option.value);
-                        setIsDropdownOpen(false);
-                      }}
-                      className={`w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors duration-150 first:rounded-t-lg last:rounded-b-lg ${
-                        selectedChartType === option.value ? 'bg-cyan-50 text-cyan-700' : 'text-gray-700'
-                      }`}
+              {/* Chart Selection Dropdown */}
+              <div className="relative" ref={dropdownRef}>
+                <button
+                  onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                  className="bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-left shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-all duration-200 min-w-[200px]"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">
+                        {selectedChartType === "line" && "📈"}
+                        {selectedChartType === "bar" && "📊"}
+                        {selectedChartType === "pie" && "🥧"}
+                      </span>
+                      <span className="font-medium text-gray-900 text-sm">
+                        {selectedChartType === "line" && "Temperature & Vibration"}
+                        {selectedChartType === "bar" && "Speed Chart"}
+                        {selectedChartType === "pie" && "Load Distribution"}
+                      </span>
+                    </div>
+                    <svg 
+                      className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} 
+                      fill="none" 
+                      stroke="currentColor" 
+                      viewBox="0 0 24 24"
                     >
-                      <div className="flex items-center gap-3">
-                        <span className="text-lg">{option.icon}</span>
-                        <div className="flex-1">
-                          <div className="font-medium">{option.label}</div>
-                          <div className="text-xs text-gray-500">{option.desc}</div>
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                </button>
+
+                {/* Dropdown Options */}
+                {isDropdownOpen && (
+                  <div className="absolute z-20 right-0 mt-2 w-64 bg-white border border-gray-200 rounded-lg shadow-lg">
+                    {[
+                      { value: "line", label: "Temperature & Vibration", icon: "📈", desc: "Line chart analysis" },
+                      { value: "bar", label: "Speed Chart", icon: "📊", desc: "Bar chart visualization" },
+                      { value: "pie", label: "Load Distribution", icon: "🥧", desc: "Pie chart breakdown" }
+                    ].map((option) => (
+                      <button
+                        key={option.value}
+                        onClick={() => {
+                          setSelectedChartType(option.value);
+                          setIsDropdownOpen(false);
+                        }}
+                        className={`w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors duration-150 first:rounded-t-lg last:rounded-b-lg ${
+                          selectedChartType === option.value ? 'bg-cyan-50 text-cyan-700' : 'text-gray-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-lg">{option.icon}</span>
+                          <div className="flex-1">
+                            <div className="font-medium">{option.label}</div>
+                            <div className="text-xs text-gray-500">{option.desc}</div>
+                          </div>
+                          {selectedChartType === option.value && (
+                            <svg className="w-4 h-4 text-cyan-500" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                            </svg>
+                          )}
                         </div>
-                        {selectedChartType === option.value && (
-                          <svg className="w-4 h-4 text-cyan-500" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                          </svg>
-                        )}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -1304,7 +1366,7 @@ const Dashboard = () => {
             )}
 
             {selectedChartType === "pie" && (
-              <div className="bg-gray-50 rounded-xl shadow-sm p-6 cursor-grab hover:shadow-md border border-gray-200 transition-all duration-200">
+              <div className="bg-gray-50 rounded-xl shadow-sm p-6 cursor-grab hover:shadow-md border border-gray-200 transition-all duration-200" draggable onDragStart={(e) => onDragStart(e, "pieChart")}>
                 <div className="flex items-center gap-2 mb-4">
                   <span className="text-lg">🥧</span>
                   <h4 className="text-lg font-semibold text-gray-800">Load Distribution</h4>
@@ -1435,6 +1497,19 @@ const Dashboard = () => {
                         <span>Copy Status</span>
                       </div>
                     </button>
+                    
+                    <button 
+                      className="flex-1 py-2 px-3 rounded-lg text-xs font-semibold transition-all duration-200 bg-green-100 text-green-700 hover:bg-green-200"
+                      onClick={() => window.open('/help', '_blank')}
+                      title="View help documentation"
+                    >
+                      <div className="flex items-center justify-center space-x-1">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span>Help</span>
+                      </div>
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1444,7 +1519,7 @@ const Dashboard = () => {
             <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 w-full modern-card animate-fade-in-up">
               <div className="text-center">
                 {(() => {
-                  const serviceInfo = calculateNextServiceDate();
+                  const serviceInfo = calculateNextServiceDate;
                   const urgencyConfig = {
                     critical: {
                       color: 'from-red-500 to-red-600',
@@ -1770,6 +1845,13 @@ const Dashboard = () => {
           userEmail={currentUser?.email}
         />
       )}
+
+      {/* Analysis Input Modal */}
+      <AnalysisInputModal
+        isOpen={showAnalysisModal}
+        onClose={() => setShowAnalysisModal(false)}
+        onAnalyze={handleManualAnalysis}
+      />
     </div>
   );
 };

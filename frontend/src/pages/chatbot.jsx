@@ -280,7 +280,7 @@ export default function Chatbot({ chartData }) {
         )}
       </div>
       
-      <div style={{ flexShrink: 0 }}>
+      {/* <div style={{ flexShrink: 0 }}>
         <input 
           value={message} 
           onChange={e => setMessage(e.target.value)} 
@@ -315,7 +315,7 @@ export default function Chatbot({ chartData }) {
         >
           Send Message
         </button>
-      </div>
+      </div> */}
     </div>
   );
 }

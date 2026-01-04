@@ -18,11 +18,11 @@ class MachineHealthReasoner:
     """
     
     def __init__(self):
-        # Thresholds (configurable)
+        # Thresholds (configurable) - Updated to match industrial standards
         self.thresholds = {
-            "temperature": {"normal": 75, "high": 85, "critical": 95},
-            "vibration": {"normal": 5.0, "high": 7.0, "critical": 10.0},
-            "speed": {"normal": 1200, "high": 1350, "critical": 1500}
+            "temperature": {"normal": 65, "high": 85, "critical": 95},
+            "vibration": {"normal": 3.0, "high": 7.0, "critical": 10.0},
+            "speed": {"normal": 1150, "high": 1350, "critical": 1500}
         }
         
         # Conversation context memory

@@ -1,6 +1,6 @@
 const GaugeCard = ({ label, value, unit = "%" }) => {
   // Format the display value to 2 decimal places
-  const displayValue = typeof value === 'number' ? value.toFixed(2) : value;
+  const displayValue = typeof value === 'number' ? value.toFixed(2) : parseFloat(value || 0).toFixed(2);
 
   // Get parameter icon
   const getParameterIcon = (paramLabel) => {

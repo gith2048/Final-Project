@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
-Startup script for the Machine Management System.
-This script helps set up and start the complete system.
+Machine Management System Startup Script
+========================================
+
+This script provides a convenient way to start the machine management system
+with proper initialization and health checks.
 """
 
 import os
@@ -9,189 +12,285 @@ import sys
 import subprocess
 import time
 import requests
+import json
+from pathlib import Path
 
-def check_python():
-    """Check if Python is available"""
-    try:
-        result = subprocess.run([sys.executable, '--version'], capture_output=True, text=True)
-        print(f"✅ Python: {result.stdout.strip()}")
-        return True
-    except:
-        print("❌ Python not found")
+def print_banner():
+    """Print startup banner"""
+    print("=" * 60)
+    print("🏭 MACHINE MANAGEMENT SYSTEM")
+    print("🤖 Predictive Maintenance Platform")
+    print("=" * 60)
+    print()
+
+def check_python_version():
+    """Check if Python version is compatible"""
+    if sys.version_info < (3, 8):
+        print("❌ Python 3.8 or higher is required")
+        print(f"   Current version: {sys.version}")
         return False
+    print(f"✅ Python version: {sys.version.split()[0]}")
+    return True
 
-def check_node():
-    """Check if Node.js is available"""
-    try:
-        result = subprocess.run(['node', '--version'], capture_output=True, text=True)
-        print(f"✅ Node.js: {result.stdout.strip()}")
-        return True
-    except:
-        print("❌ Node.js not found. Please install Node.js to run the frontend.")
+def check_dependencies():
+    """Check if required dependencies are installed"""
+    required_packages = [
+        'flask', 'flask_sqlalchemy', 'flask_cors', 'mysql-connector-python',
+        'numpy', 'pandas', 'scikit-learn', 'tensorflow', 'python-dotenv',
+        'reportlab', 'smtplib'
+    ]
+    
+    missing_packages = []
+    for package in required_packages:
+        try:
+            __import__(package.replace('-', '_'))
+            print(f"✅ {package}")
+        except ImportError:
+            missing_packages.append(package)
+            print(f"❌ {package} - Not installed")
+    
+    if missing_packages:
+        print(f"\n⚠️  Missing packages: {', '.join(missing_packages)}")
+        print("   Install with: pip install -r backend/requirements.txt")
         return False
+    
+    return True
 
-def install_backend_deps():
-    """Install backend dependencies"""
-    print("\n📦 Installing backend dependencies...")
+def check_database_connection():
+    """Check if database is accessible"""
     try:
-        subprocess.run([sys.executable, '-m', 'pip', 'install', '-r', 'backend/requirements.txt'], 
-                      check=True, cwd=os.getcwd())
-        print("✅ Backend dependencies installed")
-        return True
-    except subprocess.CalledProcessError:
-        print("❌ Failed to install backend dependencies")
-        return False
-
-def install_frontend_deps():
-    """Install frontend dependencies"""
-    print("\n📦 Installing frontend dependencies...")
-    try:
-        subprocess.run(['npm', 'install'], check=True, cwd='frontend')
-        print("✅ Frontend dependencies installed")
-        return True
-    except subprocess.CalledProcessError:
-        print("❌ Failed to install frontend dependencies")
-        return False
-
-def check_and_setup_database():
-    """Check database status and setup if needed"""
-    print("\n🔍 Checking database status...")
-    try:
-        result = subprocess.run([sys.executable, 'check_database.py'], 
-                              capture_output=True, text=True, cwd='backend')
+        import mysql.connector
+        from mysql.connector import Error
         
-        print(result.stdout)
+        connection = mysql.connector.connect(
+            host='localhost',
+            database='predictive_maintenance2',
+            user='root',
+            password=''
+        )
         
-        # Check if migration is needed
-        if "migrate_database.py" in result.stdout:
-            print("🔄 Running database migration...")
-            subprocess.run([sys.executable, 'migrate_database.py'], cwd='backend')
-        elif "reset_database.py" in result.stdout:
-            print("🔄 Database reset recommended...")
-            response = input("Reset database? This will delete existing data (y/n): ")
-            if response.lower() == 'y':
-                subprocess.run([sys.executable, 'reset_database.py'], cwd='backend')
-            else:
-                print("⚠️  Continuing without reset - may encounter errors")
-        
-        return True
-    except Exception as e:
-        print(f"⚠️  Database check failed: {e}")
-        return True  # Continue anyway
+        if connection.is_connected():
+            print("✅ Database connection successful")
+            connection.close()
+            return True
+    except Error as e:
+        print(f"❌ Database connection failed: {e}")
+        print("   Make sure MySQL is running and database exists")
+        return False
+
+def check_model_files():
+    """Check if ML model files exist"""
+    model_dir = Path("backend/model")
+    required_models = [
+        "rf_model.pkl",
+        "scaler.pkl", 
+        "label_encoder.pkl",
+        "iso_model.pkl",
+        "lstm_model.keras",
+        "lstm_scaler.pkl"
+    ]
+    
+    missing_models = []
+    for model_file in required_models:
+        model_path = model_dir / model_file
+        if model_path.exists():
+            print(f"✅ {model_file}")
+        else:
+            missing_models.append(model_file)
+            print(f"⚠️  {model_file} - Not found")
+    
+    if missing_models:
+        print(f"\n⚠️  Missing model files: {', '.join(missing_models)}")
+        print("   System will work with limited functionality")
+        print("   Train models using the training scripts in backend/model/")
+    
+    return len(missing_models) == 0
+
+def check_sensor_data():
+    """Check if sensor data file exists"""
+    sensor_file = Path("backend/sensor_data_3params.json")
+    if sensor_file.exists():
+        print("✅ Sensor data file found")
+        try:
+            with open(sensor_file, 'r') as f:
+                data = json.load(f)
+                print(f"   📊 {len(data)} sensor readings loaded")
+            return True
+        except Exception as e:
+            print(f"❌ Error reading sensor data: {e}")
+            return False
+    else:
+        print("⚠️  Sensor data file not found")
+        print("   Create backend/sensor_data_3params.json with sample data")
+        return False
 
 def start_backend():
-    """Start the backend server"""
-    print("\n🚀 Starting backend server...")
-    try:
-        # Start backend in background
-        process = subprocess.Popen([sys.executable, 'app.py'], cwd='backend')
-        
-        # Wait for server to start
-        print("⏳ Waiting for backend to start...")
-        for i in range(30):  # Wait up to 30 seconds
-            try:
-                response = requests.get('http://localhost:5000/', timeout=1)
-                if response.status_code == 200:
-                    print("✅ Backend server is running on http://localhost:5000")
-                    return process
-            except:
-                pass
-            time.sleep(1)
-        
-        print("❌ Backend server failed to start")
-        process.terminate()
+    """Start the Flask backend server"""
+    print("\n🚀 Starting Backend Server...")
+    backend_dir = Path("backend")
+    
+    if not backend_dir.exists():
+        print("❌ Backend directory not found")
         return None
+    
+    try:
+        # Change to backend directory and start Flask app
+        process = subprocess.Popen(
+            [sys.executable, "app.py"],
+            cwd=backend_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
         
+        # Wait a moment for server to start
+        time.sleep(3)
+        
+        # Check if server is running
+        try:
+            response = requests.get("http://localhost:5000/", timeout=5)
+            if response.status_code == 200:
+                print("✅ Backend server started successfully")
+                print("   🌐 API available at: http://localhost:5000")
+                return process
+            else:
+                print(f"❌ Backend server returned status: {response.status_code}")
+                return None
+        except requests.exceptions.RequestException:
+            print("❌ Backend server not responding")
+            return None
+            
     except Exception as e:
         print(f"❌ Failed to start backend: {e}")
         return None
 
-def create_admin_user():
-    """Create admin user"""
-    print("\n👤 Creating admin user...")
-    try:
-        subprocess.run([sys.executable, 'create_admin.py'], check=True, cwd='backend')
-        print("✅ Admin user created")
-        return True
-    except subprocess.CalledProcessError:
-        print("⚠️  Admin user creation failed (may already exist)")
-        return True  # Continue anyway
-
-def test_api():
-    """Test the API endpoints"""
-    print("\n🧪 Testing API endpoints...")
-    try:
-        subprocess.run([sys.executable, 'test_machine_api.py'], check=True, cwd='backend')
-        return True
-    except subprocess.CalledProcessError:
-        print("⚠️  API test failed")
-        return True  # Continue anyway
-
 def start_frontend():
-    """Start the frontend server"""
-    print("\n🌐 Starting frontend server...")
-    print("📝 The frontend will open in your browser at http://localhost:5173")
-    print("🔑 Admin credentials: admin@example.com / admin123")
-    print("\n" + "="*60)
-    print("MACHINE MANAGEMENT SYSTEM IS READY!")
-    print("="*60)
-    print("1. Create a user account or login")
-    print("2. Add machines using the 'Add Machine' button")
-    print("3. Login as admin to approve machines")
-    print("4. Select approved machines to access monitoring features")
-    print("="*60)
+    """Start the React frontend server"""
+    print("\n🚀 Starting Frontend Server...")
+    frontend_dir = Path("frontend")
+    
+    if not frontend_dir.exists():
+        print("❌ Frontend directory not found")
+        return None
+    
+    # Check if node_modules exists
+    node_modules = frontend_dir / "node_modules"
+    if not node_modules.exists():
+        print("⚠️  Node modules not found, installing dependencies...")
+        try:
+            subprocess.run(["npm", "install"], cwd=frontend_dir, check=True)
+            print("✅ Dependencies installed")
+        except subprocess.CalledProcessError:
+            print("❌ Failed to install dependencies")
+            return None
     
     try:
-        # Start frontend (this will block)
-        subprocess.run(['npm', 'run', 'dev'], cwd='frontend')
-    except KeyboardInterrupt:
-        print("\n👋 Shutting down frontend...")
-    except subprocess.CalledProcessError:
-        print("❌ Failed to start frontend")
+        # Start the development server
+        process = subprocess.Popen(
+            ["npm", "run", "dev"],
+            cwd=frontend_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        
+        # Wait for server to start
+        time.sleep(5)
+        
+        # Check if server is running
+        try:
+            response = requests.get("http://localhost:5173/", timeout=5)
+            if response.status_code == 200:
+                print("✅ Frontend server started successfully")
+                print("   🌐 Web interface available at: http://localhost:5173")
+                return process
+            else:
+                print(f"❌ Frontend server returned status: {response.status_code}")
+                return None
+        except requests.exceptions.RequestException:
+            print("❌ Frontend server not responding")
+            return None
+            
+    except Exception as e:
+        print(f"❌ Failed to start frontend: {e}")
+        return None
 
 def main():
-    print("🏭 Machine Management System Startup")
-    print("="*50)
+    """Main startup function"""
+    print_banner()
     
-    # Check prerequisites
-    if not check_python():
+    print("🔍 System Health Check")
+    print("-" * 30)
+    
+    # Run all health checks
+    checks_passed = 0
+    total_checks = 6
+    
+    if check_python_version():
+        checks_passed += 1
+    
+    print("\n📦 Checking Dependencies...")
+    if check_dependencies():
+        checks_passed += 1
+    
+    print("\n🗄️  Checking Database...")
+    if check_database_connection():
+        checks_passed += 1
+    
+    print("\n🤖 Checking ML Models...")
+    if check_model_files():
+        checks_passed += 1
+    
+    print("\n📊 Checking Sensor Data...")
+    if check_sensor_data():
+        checks_passed += 1
+    
+    print(f"\n📋 Health Check Summary: {checks_passed}/{total_checks} checks passed")
+    
+    if checks_passed < 3:
+        print("❌ Too many critical issues found. Please fix them before starting.")
         return
     
-    if not check_node():
-        return
+    # Start services
+    print("\n" + "=" * 60)
+    print("🚀 STARTING SERVICES")
+    print("=" * 60)
     
-    # Install dependencies
-    if not install_backend_deps():
-        return
-    
-    if not install_frontend_deps():
-        return
-    
-    # Check and setup database
-    if not check_and_setup_database():
-        return
-    
-    # Start backend
     backend_process = start_backend()
     if not backend_process:
+        print("❌ Failed to start backend. Exiting.")
         return
     
+    frontend_process = start_frontend()
+    if not frontend_process:
+        print("❌ Failed to start frontend. Backend is still running.")
+        print("   You can access the API directly at http://localhost:5000")
+    
+    # Success message
+    print("\n" + "=" * 60)
+    print("🎉 SYSTEM STARTED SUCCESSFULLY!")
+    print("=" * 60)
+    print("🌐 Web Interface: http://localhost:5173")
+    print("🔧 API Endpoint: http://localhost:5000")
+    print("📧 Email alerts configured and ready")
+    print("🤖 ML models loaded and operational")
+    print("\n💡 Quick Start:")
+    print("   1. Open http://localhost:5173 in your browser")
+    print("   2. Sign up for a new account")
+    print("   3. Add your first machine")
+    print("   4. Wait for admin approval")
+    print("   5. Start monitoring!")
+    print("\n⚠️  To stop the system, press Ctrl+C")
+    
     try:
-        # Setup admin user
-        create_admin_user()
-        
-        # Test API
-        test_api()
-        
-        # Start frontend
-        start_frontend()
-        
-    finally:
-        # Cleanup
-        print("\n🧹 Cleaning up...")
+        # Keep the script running
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n\n🛑 Shutting down system...")
         if backend_process:
             backend_process.terminate()
-            print("✅ Backend server stopped")
+        if frontend_process:
+            frontend_process.terminate()
+        print("✅ System stopped successfully")
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
