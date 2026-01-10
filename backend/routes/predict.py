@@ -5,8 +5,10 @@ import pandas as pd
 import os
 import pickle
 from keras.models import load_model
-from extensions import db
+# Import db from the main app context
+from flask import current_app
 from models.machine_data import MachineData
+from thresholds import TEMP_THRESHOLDS, VIBRATION_THRESHOLDS, SPEED_THRESHOLDS, check_threshold_status
 
 predict_bp = Blueprint("predict", __name__)
 
@@ -134,14 +136,22 @@ def predict_route():
         seq_arr = payload.get("sequence", [])
     try:
         result = model_predict(temp, vib, speed, seq_arr)
-        # thresholds (frontend convenience)
+        # thresholds (frontend convenience) - using centralized thresholds
         result["thresholds"] = {
-            "temperature": "High" if float(temp) > 75 else "Normal",
-            "vibration": "High" if float(vib) > 5 else "Normal",
-            "speed": "High" if float(speed) > 1200 else "Normal"
+            "temperature": check_threshold_status("temperature", float(temp)).title(),
+            "vibration": check_threshold_status("vibration", float(vib)).title(),
+            "speed": check_threshold_status("speed", float(speed)).title(),
+            "temp_warning": check_threshold_status("temperature", float(temp)) in ['unsatisfactory', 'unacceptable'],
+            "temp_critical": check_threshold_status("temperature", float(temp)) == 'unacceptable',
+            "vib_warning": check_threshold_status("vibration", float(vib)) in ['unsatisfactory', 'unacceptable'],
+            "vib_critical": check_threshold_status("vibration", float(vib)) == 'unacceptable',
+            "speed_warning": check_threshold_status("speed", float(speed)) in ['unsatisfactory', 'unacceptable'],
+            "speed_critical": check_threshold_status("speed", float(speed)) == 'unacceptable'
         }
         # Save to DB (optional): create MachineData entry
         try:
+            # Get db from current app context
+            from app import db
             entry = MachineData(
                 temperature=float(temp),
                 speed=float(speed),

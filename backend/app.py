@@ -46,7 +46,7 @@ CORS(app, resources={
     }
 })
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:@localhost/predictive_maintenance2'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:@localhost/predictive_maintenance_new'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -2263,7 +2263,15 @@ def retrain_and_predict():
 # Run
 # ---------------------------
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
+    try:
+        with app.app_context():
+            print("🔄 Initializing database...")
+            db.create_all()
+            print("✅ Database initialized successfully!")
+    except Exception as e:
+        print(f"⚠️ Database initialization warning: {e}")
+        print("🚀 Starting server anyway...")
+    
     port = int(os.environ.get("PORT", 5000))
+    print(f"🚀 Starting Flask server on port {port}...")
     app.run(host="0.0.0.0", port=port, debug=True)

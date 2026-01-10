@@ -8,20 +8,34 @@ from datetime import datetime
 import pandas as pd
 import os
 
-# -------------------------------
-# INDUSTRIAL THRESHOLDS (3 PARAMS ONLY)
-# -------------------------------
-TEMP_LOW = 65
-TEMP_HIGH = 75
-TEMP_CRIT = 85
+# Import industry standard thresholds
+from thresholds import (
+    check_threshold_status, 
+    get_overall_status, 
+    CONDITION_DESCRIPTIONS,
+    get_standards_info
+)
 
-VIB_LOW = 3
-VIB_HIGH = 5
-VIB_CRIT = 7
+# -------------------------------
+# INDUSTRY STANDARD THRESHOLDS
+# -------------------------------
+# Using ISO 10816-3 and NEMA standards from thresholds.py module
+# Temperature: NEMA Class B insulation (130°C max hot spot)
+# Vibration: ISO 10816-3 for industrial machinery >15kW
+# Speed: Industry best practices for motor operation
 
-SPEED_LOW = 1150
-SPEED_HIGH = 1250
-SPEED_CRIT = 1350
+# Legacy constants for backward compatibility (will be deprecated)
+TEMP_LOW = 70    # Now "satisfactory" threshold
+TEMP_HIGH = 85   # Now "unsatisfactory" threshold  
+TEMP_CRIT = 105  # Now "unacceptable" threshold
+
+VIB_LOW = 1.8    # ISO 10816-3 Zone A/B boundary
+VIB_HIGH = 4.5   # ISO 10816-3 Zone B/C boundary
+VIB_CRIT = 11.2  # ISO 10816-3 Zone C/D boundary
+
+SPEED_LOW = 1200   # Normal operation upper limit
+SPEED_HIGH = 1300  # Satisfactory operation upper limit
+SPEED_CRIT = 1450  # Unacceptable operation threshold
 
 
 # -------------------------------
@@ -495,7 +509,8 @@ def generate_pdf_report(data, avg_temp, avg_vibration, avg_speed, status, recomm
 # -------------------------------
 def process_sensor_data(data):
     """
-    Process sensor data, generate alerts, send email, and create PDF report
+    Process sensor data using industry standard thresholds (ISO 10816-3 & NEMA),
+    generate alerts, send email, and create PDF report
     """
     temp = data.get("temperature", [])
     speed = data.get("speed", [])
@@ -533,45 +548,57 @@ def process_sensor_data(data):
     avg_speed = df["speed"].mean()
     avg_vibration = df["vibration"].mean()
 
+    # Use industry standard threshold analysis
+    overall_status = get_overall_status(avg_temp, avg_vibration, avg_speed)
+    
+    # Generate alerts based on industry standard classifications
     alerts = []
+    
+    # Temperature analysis (NEMA Class B standards)
+    temp_status = check_threshold_status('temperature', avg_temp)
+    if temp_status == 'unacceptable':
+        alerts.append(f"UNACCEPTABLE temperature {avg_temp:.1f}°C (>105°C - Class B limit exceeded)")
+    elif temp_status == 'unsatisfactory':
+        alerts.append(f"UNSATISFACTORY temperature {avg_temp:.1f}°C (85-105°C - requires attention)")
+    elif temp_status == 'satisfactory':
+        alerts.append(f"SATISFACTORY temperature {avg_temp:.1f}°C (70-85°C - monitor closely)")
 
-    # TEMPERATURE ANALYSIS
-    if avg_temp >= TEMP_CRIT:
-        alerts.append(f"CRITICAL temperature {avg_temp:.2f}°C")
-    elif avg_temp > TEMP_HIGH:
-        alerts.append(f"High temperature {avg_temp:.2f}°C")
-    elif avg_temp > TEMP_LOW:
-        alerts.append(f"Medium temperature {avg_temp:.2f}°C")
+    # Vibration analysis (ISO 10816-3 standards)
+    vib_status = check_threshold_status('vibration', avg_vibration)
+    if vib_status == 'unacceptable':
+        alerts.append(f"UNACCEPTABLE vibration {avg_vibration:.1f} mm/s (>11.2 - ISO Zone D)")
+    elif vib_status == 'unsatisfactory':
+        alerts.append(f"UNSATISFACTORY vibration {avg_vibration:.1f} mm/s (4.5-11.2 - ISO Zone C)")
+    elif vib_status == 'satisfactory':
+        alerts.append(f"SATISFACTORY vibration {avg_vibration:.1f} mm/s (1.8-4.5 - ISO Zone B)")
 
-    # VIBRATION ANALYSIS
-    if avg_vibration >= VIB_CRIT:
-        alerts.append(f"CRITICAL vibration {avg_vibration:.2f} mm/s")
-    elif avg_vibration > VIB_HIGH:
-        alerts.append(f"High vibration {avg_vibration:.2f} mm/s")
-    elif avg_vibration > VIB_LOW:
-        alerts.append(f"Medium vibration {avg_vibration:.2f} mm/s")
+    # Speed analysis (Industrial motor standards)
+    speed_status = check_threshold_status('speed', avg_speed)
+    if speed_status == 'unacceptable':
+        alerts.append(f"UNACCEPTABLE speed {avg_speed:.0f} RPM (>1450 - dangerous overspeed)")
+    elif speed_status == 'unsatisfactory':
+        alerts.append(f"UNSATISFACTORY speed {avg_speed:.0f} RPM (1300-1450 - high speed)")
+    elif speed_status == 'satisfactory':
+        alerts.append(f"SATISFACTORY speed {avg_speed:.0f} RPM (1200-1300 - elevated but acceptable)")
 
-    # SPEED ANALYSIS
-    if avg_speed >= SPEED_CRIT:
-        alerts.append(f"CRITICAL speed {avg_speed:.0f} RPM")
-    elif avg_speed > SPEED_HIGH:
-        alerts.append(f"High speed {avg_speed:.0f} RPM")
-    elif avg_speed > SPEED_LOW:
-        alerts.append(f"Medium speed {avg_speed:.0f} RPM")
-
-    # DETERMINE STATUS + RECOMMENDATION
-    if any("CRITICAL" in a for a in alerts):
-        status = "CRITICAL"
-        recommendation = "🚨 Immediate shutdown recommended. Inspect machine urgently."
-    elif any("High" in a for a in alerts):
-        status = "High Risk"
-        recommendation = "⚠️ Perform urgent maintenance within 24 hours."
-    elif any("Medium" in a for a in alerts):
-        status = "Moderate"
-        recommendation = "Monitor closely. Schedule inspection within 48 hours."
+    # Map industry standard levels to user-friendly status
+    status_mapping = {
+        'good': 'Excellent',
+        'satisfactory': 'Satisfactory', 
+        'unsatisfactory': 'High Risk',
+        'unacceptable': 'CRITICAL'
+    }
+    
+    status = status_mapping.get(overall_status['level'], 'Unknown')
+    
+    # Get recommendation from industry standards
+    recommendation = overall_status.get('action', 'Continue monitoring')
+    
+    # Add standards compliance note
+    if overall_status['level'] == 'good':
+        recommendation += " All parameters within industry standard ranges (ISO 10816-3 & NEMA Class B)."
     else:
-        status = "Healthy"
-        recommendation = "✅ Machine operating normally. Continue standard monitoring."
+        recommendation += f" Based on {overall_status['level']} classification per industry standards."
 
     # SEND EMAIL ALERT (always send if recipient provided)
     email_sent = False

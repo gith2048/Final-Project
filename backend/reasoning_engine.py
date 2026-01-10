@@ -18,12 +18,19 @@ class MachineHealthReasoner:
     """
     
     def __init__(self):
-        # Thresholds (configurable) - Updated to match industrial standards
+        # Import industry standard thresholds
+        from thresholds import ALL_THRESHOLDS, check_threshold_status, get_overall_status
+        
+        # Use industry standard thresholds (ISO 10816-3 & NEMA)
         self.thresholds = {
-            "temperature": {"normal": 65, "high": 85, "critical": 95},
-            "vibration": {"normal": 3.0, "high": 7.0, "critical": 10.0},
-            "speed": {"normal": 1150, "high": 1350, "critical": 1500}
+            "temperature": {"good": 70, "satisfactory": 85, "unsatisfactory": 105, "unacceptable": 200},
+            "vibration": {"good": 1.8, "satisfactory": 4.5, "unsatisfactory": 11.2, "unacceptable": 50.0},
+            "speed": {"good": 1200, "satisfactory": 1300, "unsatisfactory": 1450, "unacceptable": 5000}
         }
+        
+        # Store reference to industry standard functions
+        self.check_threshold_status = check_threshold_status
+        self.get_overall_status = get_overall_status
         
         # Conversation context memory
         self.conversation_history = []
@@ -123,23 +130,25 @@ class MachineHealthReasoner:
             recent_max = np.max(clean_values[-10:]) if len(clean_values) >= 10 else np.max(clean_values)
             recent_min = np.min(clean_values[-10:]) if len(clean_values) >= 10 else np.min(clean_values)
             
-            # Determine status
-            thresholds = self.thresholds[param]
-            if current >= thresholds["critical"]:
-                status = "critical"
-            elif current >= thresholds["high"]:
-                status = "high"
-            elif current >= thresholds["normal"]:
-                status = "warning"
-            else:
-                status = "normal"
+            # Determine status using industry standards
+            status = self.check_threshold_status(param, current)
+            
+            # Map industry standard levels to internal status for compatibility
+            status_mapping = {
+                'good': 'normal',
+                'satisfactory': 'warning', 
+                'unsatisfactory': 'high',
+                'unacceptable': 'critical'
+            }
+            internal_status = status_mapping.get(status, 'normal')
             
             state[param] = {
                 "current": float(current),
                 "recent_avg": float(recent_avg),
                 "recent_max": float(recent_max),
                 "recent_min": float(recent_min),
-                "status": status,
+                "status": internal_status,  # Use mapped status for compatibility
+                "industry_status": status,   # Store original industry standard status
                 "volatility": float(np.std(clean_values[-10:])) if len(clean_values) >= 10 else 0.0
             }
         
@@ -212,12 +221,13 @@ class MachineHealthReasoner:
             speed_change = f_speed - current_state.get("speed", {}).get("current", f_speed)
             
             concerns = []
-            if f_temp > self.thresholds["temperature"]["high"]:
-                concerns.append(f"temperature will reach {f_temp:.1f}°C (high risk)")
-            if f_vib > self.thresholds["vibration"]["high"]:
-                concerns.append(f"vibration will reach {f_vib:.1f} mm/s (high risk)")
-            if f_speed > self.thresholds["speed"]["high"]:
-                concerns.append(f"speed will reach {f_speed:.0f} RPM (high risk)")
+            # Use industry standard thresholds for forecast concerns
+            if f_temp > self.thresholds["temperature"]["satisfactory"]:
+                concerns.append(f"temperature will reach {f_temp:.1f}°C (above satisfactory threshold)")
+            if f_vib > self.thresholds["vibration"]["satisfactory"]:
+                concerns.append(f"vibration will reach {f_vib:.1f} mm/s (above satisfactory threshold)")
+            if f_speed > self.thresholds["speed"]["satisfactory"]:
+                concerns.append(f"speed will reach {f_speed:.0f} RPM (above satisfactory threshold)")
             
             interpretation["lstm"] = {
                 "forecast_values": forecast,
@@ -325,12 +335,14 @@ class MachineHealthReasoner:
             vib_clean = [v for v in vib_values[-5:] if not np.isnan(v)]
             
             if temp_clean and vib_clean:
-                if temp_clean[-1] > self.thresholds["temperature"]["high"] and vib_clean[-1] > self.thresholds["vibration"]["high"]:
+                # Use industry standard thresholds for correlation detection
+                if (temp_clean[-1] > self.thresholds["temperature"]["unsatisfactory"] and 
+                    vib_clean[-1] > self.thresholds["vibration"]["unsatisfactory"]):
                     anomalies.append({
                         "type": "correlated",
                         "parameter": "temperature_vibration",
                         "severity": "critical",
-                        "description": "Both temperature and vibration are critically high",
+                        "description": "Both temperature and vibration exceed unsatisfactory thresholds (ISO/NEMA standards)",
                         "recommendation": "Immediate shutdown recommended - possible bearing failure or severe friction"
                     })
         
@@ -440,7 +452,7 @@ class MachineHealthReasoner:
             recommendations.append({
                 "priority": "immediate",
                 "action": "Critical Temperature - Cooling System Failure",
-                "reason": f"Temperature at {temp_current:.1f}°C (Critical threshold: 95°C)",
+                "reason": f"Temperature at {temp_current:.1f}°C (Unacceptable per NEMA Class B: >105°C)",
                 "steps": [
                     "1. Shut down machine immediately to prevent damage",
                     "2. Check coolant levels - refill if low",
@@ -458,7 +470,7 @@ class MachineHealthReasoner:
             recommendations.append({
                 "priority": "high",
                 "action": "High Temperature - Preventive Action Required",
-                "reason": f"Temperature at {temp_current:.1f}°C (Warning threshold: 85°C)",
+                "reason": f"Temperature at {temp_current:.1f}°C (Unsatisfactory per NEMA Class B: 85-105°C)",
                 "steps": [
                     "1. Reduce machine load by 20-30%",
                     "2. Check coolant levels - top up if below minimum",
@@ -475,7 +487,7 @@ class MachineHealthReasoner:
             recommendations.append({
                 "priority": "medium",
                 "action": "Elevated Temperature - Monitor Closely",
-                "reason": f"Temperature at {temp_current:.1f}°C (Normal threshold: 75°C)",
+                "reason": f"Temperature at {temp_current:.1f}°C (Satisfactory per NEMA Class B: 70-85°C)",
                 "steps": [
                     "1. Check ambient temperature - ensure adequate ventilation",
                     "2. Verify cooling system is functioning",
@@ -494,7 +506,7 @@ class MachineHealthReasoner:
             recommendations.append({
                 "priority": "immediate",
                 "action": "Critical Vibration - Mechanical Failure Risk",
-                "reason": f"Vibration at {vib_current:.1f} mm/s (Critical threshold: 10 mm/s)",
+                "reason": f"Vibration at {vib_current:.1f} mm/s (Unacceptable per ISO 10816-3 Zone D: >11.2 mm/s)",
                 "steps": [
                     "1. Stop machine immediately - bearing failure likely",
                     "2. Inspect bearings for wear, pitting, or damage",
@@ -513,7 +525,7 @@ class MachineHealthReasoner:
             recommendations.append({
                 "priority": "high",
                 "action": "High Vibration - Mechanical Inspection Needed",
-                "reason": f"Vibration at {vib_current:.1f} mm/s (Warning threshold: 7 mm/s)",
+                "reason": f"Vibration at {vib_current:.1f} mm/s (Unsatisfactory per ISO 10816-3 Zone C: 4.5-11.2 mm/s)",
                 "steps": [
                     "1. Reduce machine speed by 20%",
                     "2. Check all mounting bolts - tighten if loose",
@@ -530,7 +542,7 @@ class MachineHealthReasoner:
             recommendations.append({
                 "priority": "medium",
                 "action": "Elevated Vibration - Preventive Check",
-                "reason": f"Vibration at {vib_current:.1f} mm/s (Normal threshold: 5 mm/s)",
+                "reason": f"Vibration at {vib_current:.1f} mm/s (Satisfactory per ISO 10816-3 Zone B: 1.8-4.5 mm/s)",
                 "steps": [
                     "1. Check for loose components",
                     "2. Verify proper lubrication",
@@ -549,7 +561,7 @@ class MachineHealthReasoner:
             recommendations.append({
                 "priority": "immediate",
                 "action": "Critical Speed - Runaway Condition",
-                "reason": f"Speed at {speed_current:.0f} RPM (Critical threshold: 1500 RPM)",
+                "reason": f"Speed at {speed_current:.0f} RPM (Unacceptable overspeed: >1450 RPM)",
                 "steps": [
                     "1. Emergency stop - press E-stop button",
                     "2. Check motor controller for malfunction",
@@ -567,7 +579,7 @@ class MachineHealthReasoner:
             recommendations.append({
                 "priority": "high",
                 "action": "High Speed - Load Adjustment Required",
-                "reason": f"Speed at {speed_current:.0f} RPM (Warning threshold: 1350 RPM)",
+                "reason": f"Speed at {speed_current:.0f} RPM (Unsatisfactory high speed: 1300-1450 RPM)",
                 "steps": [
                     "1. Reduce machine load immediately",
                     "2. Check motor controller settings",
@@ -583,7 +595,7 @@ class MachineHealthReasoner:
             recommendations.append({
                 "priority": "medium",
                 "action": "Elevated Speed - Verify Settings",
-                "reason": f"Speed at {speed_current:.0f} RPM (Normal threshold: 1200 RPM)",
+                "reason": f"Speed at {speed_current:.0f} RPM (Satisfactory elevated: 1200-1300 RPM)",
                 "steps": [
                     "1. Verify speed setpoint matches requirements",
                     "2. Check load conditions",

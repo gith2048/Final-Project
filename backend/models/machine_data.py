@@ -12,6 +12,8 @@ class MachineData(db.Model):
 
     # Prediction fields
     forecast_temperature = db.Column(db.Float)
+    forecast_speed = db.Column(db.Float)
+    forecast_vibration = db.Column(db.Float)
     failure_risk = db.Column(db.Integer)
     anomaly_score = db.Column(db.Float)
     anomaly_flag = db.Column(db.Boolean)

@@ -11,6 +11,8 @@ import SliderControl from "../pages/SliderControl";
 import ColorPickerCard from "../pages/ColorPickerCard";
 import MachineForm from "../components/MachineForm";
 import AnalysisInputModal from "../components/AnalysisInputModal";
+import EarlyDetection from "../components/EarlyDetection";
+import { TEMP_THRESHOLDS, VIBRATION_THRESHOLDS, SPEED_THRESHOLDS } from '../utils/thresholds';
 
 Chart.register(ChartDataLabels);
 
@@ -150,10 +152,18 @@ const Dashboard = () => {
     
     setLoadingMachines(true);
     try {
-      const response = await axios.get(`http://localhost:5000/api/machines?user_email=${encodeURIComponent(userEmail)}`);
+      const response = await axios.get(`http://localhost:5000/api/machines?user_email=${encodeURIComponent(userEmail)}`, {
+        timeout: 10000, // 10 second timeout
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
       setUserMachines(response.data.machines || []);
     } catch (error) {
       console.error('Error loading user machines:', error);
+      if (error.code === 'ECONNABORTED') {
+        console.error('Request timed out - backend may be slow to respond');
+      }
       setUserMachines([]);
     } finally {
       setLoadingMachines(false);
@@ -188,18 +198,18 @@ const Dashboard = () => {
     let reason = 'Standard maintenance schedule';
 
     // Critical conditions - immediate service needed
-    if (temp >= 85 || vib >= 7 || speed >= 1350) {
+    if (temp >= TEMP_THRESHOLDS.critical || vib >= VIBRATION_THRESHOLDS.critical || speed >= SPEED_THRESHOLDS.critical) {
       daysUntilService = 1;
       urgency = 'critical';
       reason = 'Critical parameters detected - immediate service required';
     }
     // High risk conditions - service within 3-7 days
-    else if (temp >= 75 || vib >= 5 || speed >= 1250) {
+    else if (temp >= TEMP_THRESHOLDS.warning || vib >= VIBRATION_THRESHOLDS.warning || speed >= SPEED_THRESHOLDS.warning) {
       daysUntilService = 5; // Fixed to 5 days instead of random
       urgency = 'high';
       reason = 'High parameter levels - early service recommended';
     }
-    // Medium risk conditions - service within 10-15 days
+    // Medium risk conditions - service within 10-15 days (using lower thresholds for medium risk)
     else if (temp >= 65 || vib >= 3 || speed >= 1150) {
       daysUntilService = 12; // Fixed to 12 days instead of random
       urgency = 'medium';
@@ -1218,26 +1228,41 @@ const Dashboard = () => {
 
       {/* PANELS - Only show when machine is selected */}
       {selectedMachine && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-          <GaugeCard 
-            label="Temperature" 
-            value={averages.temperature ?? 0} 
-            unit="°C" 
-            maxValue={100} 
-          />
-          <GaugeCard 
-            label="Vibration" 
-            value={averages.vibration ?? 0} 
-            unit="mm/s" 
-            maxValue={10} 
-          />
-          <GaugeCard 
-            label="Speed" 
-            value={averages.speed ?? 0} 
-            unit="RPM" 
-            maxValue={2000} 
-          />
-        </div>
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            <GaugeCard 
+              label="Temperature" 
+              value={averages.temperature ?? 0} 
+              unit="°C" 
+              maxValue={100} 
+            />
+            <GaugeCard 
+              label="Vibration" 
+              value={averages.vibration ?? 0} 
+              unit="mm/s" 
+              maxValue={10} 
+            />
+            <GaugeCard 
+              label="Speed" 
+              value={averages.speed ?? 0} 
+              unit="RPM" 
+              maxValue={2000} 
+            />
+          </div>
+
+          {/* EARLY DETECTION SYSTEM */}
+          <div className="mb-6">
+            <EarlyDetection 
+              currentData={{
+                temperature: averages.temperature ?? 0,
+                vibration: averages.vibration ?? 0,
+                speed: averages.speed ?? 0
+              }}
+              selectedMachine={selectedMachine}
+              isVisible={true}
+            />
+          </div>
+        </>
       )}
 
       {/* CHARTS CONTAINER - Only show when machine is selected */}
