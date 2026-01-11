@@ -39,9 +39,9 @@ app.secret_key = SECRET_KEY
 # Enable CORS for all routes with credentials support
 CORS(app, resources={
     r"/*": {
-        "origins": ["http://localhost:5173", "http://127.0.0.1:5173"],
+        "origins": ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000"],
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"],
+        "allow_headers": ["Content-Type", "Authorization", "Access-Control-Allow-Credentials"],
         "supports_credentials": True
     }
 })
@@ -735,7 +735,8 @@ def _generate_intelligent_recommendations(temp, speed, vib, f_temp, f_speed, f_v
     # ---------------------------
     # SPEED ANALYSIS
     # ---------------------------
-    if speed > 1500 or f_speed > 1500:
+    # Check current speed first
+    if speed > 1500:
         critical_issues.append({
             "icon": "⚡",
             "title": "CRITICAL SPEED ALERT",
@@ -772,7 +773,38 @@ def _generate_intelligent_recommendations(temp, speed, vib, f_temp, f_speed, f_v
                 "Install overspeed protection at 1400 RPM"
             ]
         })
-    elif speed > 1350 or f_speed > 1350:
+    # Check forecast speed separately
+    elif f_speed > 1500:
+        high_issues.append({
+            "icon": "⚡",
+            "title": "FORECAST: Critical Speed Predicted",
+            "problem": f"Forecast speed: {f_speed:.0f} RPM (Critical: >1500 RPM). Current: {speed:.0f} RPM",
+            "impact": "AI predicts speed will exceed safe limits in next cycle",
+            "root_causes": [
+                "Current operating conditions trending toward overspeed",
+                "Load conditions may cause speed increase",
+                "Control system may be drifting"
+            ],
+            "immediate_actions": [
+                "1. Monitor speed closely over next 10 minutes",
+                "2. Reduce load by 20% as preventive measure",
+                "3. Check speed controller settings",
+                "4. Prepare for potential shutdown if speed rises"
+            ],
+            "resolution_steps": [
+                "1. Verify speed setpoint is correct",
+                "2. Check load distribution",
+                "3. Inspect motor controller for drift",
+                "4. Calibrate speed control system",
+                "5. Monitor trend closely"
+            ],
+            "prevention": [
+                "Regular speed controller calibration",
+                "Load monitoring and balancing",
+                "Predictive maintenance scheduling"
+            ]
+        })
+    elif speed > 1350:
         high_issues.append({
             "icon": "⚡",
             "title": "High Speed Warning",
@@ -821,24 +853,43 @@ def _generate_intelligent_recommendations(temp, speed, vib, f_temp, f_speed, f_v
                 "3. Verify load is within design limits"
             ]
         })
+    # Check for forecast warnings even if current speed is normal
+    elif f_speed > 1350 and speed <= 1200:
+        medium_issues.append({
+            "icon": "⚡",
+            "title": "FORECAST: Speed Increase Predicted",
+            "problem": f"Forecast speed: {f_speed:.0f} RPM (High: >1350 RPM). Current: {speed:.0f} RPM",
+            "impact": "AI predicts speed will increase significantly",
+            "immediate_actions": [
+                "1. Monitor speed trend closely",
+                "2. Check for increasing load conditions",
+                "3. Verify speed controller stability"
+            ],
+            "resolution_steps": [
+                "1. Review load conditions",
+                "2. Check speed controller settings",
+                "3. Monitor for 30 minutes"
+            ]
+        })
     
     # ---------------------------
-    # ML MODEL ANALYSIS (FIXED: Correct rf_pred values)
+    # ML MODEL ANALYSIS (FIXED: More reasonable critical conditions)
     # ---------------------------
     # rf_pred: 0=critical, 1=normal, 2=warning
-    if rf_pred == 0 or (rf_pred == 2 and iso_pred == -1):
+    # Only trigger critical ML alert for truly critical RF predictions
+    if rf_pred == 0:
         critical_issues.append({
             "icon": "🤖",
             "title": "ML Model: Critical Failure Risk Detected",
-            "problem": "Machine learning models predict imminent failure",
-            "impact": "AI has identified patterns matching previous failures",
+            "problem": "Random Forest model predicts imminent failure",
+            "impact": "AI has identified patterns matching previous critical failures",
             "root_causes": [
-                "Combination of sensor readings matches failure signature",
-                "Multiple parameters showing concerning trends",
-                "Anomalous behavior detected in operational patterns"
+                "Sensor readings match critical failure signature",
+                "Multiple parameters showing dangerous trends",
+                "Machine behavior matches pre-failure patterns"
             ],
             "immediate_actions": [
-                "1. Take ML prediction seriously - high accuracy",
+                "1. Take ML prediction seriously - high accuracy for critical failures",
                 "2. Perform comprehensive inspection immediately",
                 "3. Check all critical components",
                 "4. Consider preventive shutdown"
@@ -850,11 +901,56 @@ def _generate_intelligent_recommendations(temp, speed, vib, f_temp, f_speed, f_v
                 "4. Address all identified issues before restart"
             ]
         })
+    # Handle warning-level RF predictions with anomalies as high priority (not critical)
+    elif rf_pred == 2 and iso_pred == -1 and iso_score and iso_score < -0.1:
+        high_issues.append({
+            "icon": "🤖",
+            "title": "ML Model: Warning with Anomaly Detected",
+            "problem": f"Random Forest shows warning signs + severe anomaly detected (score: {iso_score:.3f})",
+            "impact": "Combination of ML warning and anomaly suggests developing issues",
+            "root_causes": [
+                "Machine behavior showing warning patterns",
+                "Sudden change detected in operational patterns",
+                "Early signs of potential issues developing"
+            ],
+            "immediate_actions": [
+                "1. Investigate the source of the anomaly",
+                "2. Monitor machine closely for next 2 hours",
+                "3. Check for recent changes in operation",
+                "4. Verify sensor calibration"
+            ],
+            "resolution_steps": [
+                "1. Identify what caused the sudden change",
+                "2. Check all sensors for proper operation",
+                "3. Review recent maintenance or operational changes",
+                "4. Monitor trends closely",
+                "5. Schedule inspection within 24 hours"
+            ]
+        })
+    # Handle warning-level RF predictions alone
+    elif rf_pred == 2:
+        medium_issues.append({
+            "icon": "🤖",
+            "title": "ML Model: Warning Signs Detected",
+            "problem": "Random Forest model shows warning-level risk patterns",
+            "impact": "Early warning signs detected - monitor closely",
+            "immediate_actions": [
+                "1. Monitor machine parameters closely",
+                "2. Schedule inspection within 48 hours",
+                "3. Check for developing issues"
+            ],
+            "resolution_steps": [
+                "1. Review parameter trends",
+                "2. Schedule preventive maintenance",
+                "3. Monitor for escalation"
+            ]
+        })
     
     # ---------------------------
-    # ANOMALY DETECTION
+    # ANOMALY DETECTION (Only add if not already covered by ML analysis)
     # ---------------------------
-    if iso_pred == -1 and iso_score and iso_score < -0.1:
+    # Only add standalone anomaly alerts if RF model is normal (not warning/critical)
+    if iso_pred == -1 and iso_score and iso_score < -0.1 and rf_pred == 1:
         high_issues.append({
             "icon": "🔍",
             "title": "Severe Anomaly Detected",
@@ -878,6 +974,24 @@ def _generate_intelligent_recommendations(temp, speed, vib, f_temp, f_speed, f_v
                 "3. Inspect machine for physical changes",
                 "4. Review maintenance logs for recent work",
                 "5. Recalibrate sensors if needed"
+            ]
+        })
+    # Medium-level anomaly detection for less severe cases
+    elif iso_pred == -1 and iso_score and iso_score < -0.05 and rf_pred == 1:
+        medium_issues.append({
+            "icon": "🔍",
+            "title": "Anomaly Detected",
+            "problem": f"Isolation Forest score: {iso_score:.3f} (Moderate anomaly)",
+            "impact": "Unusual pattern detected - monitor closely",
+            "immediate_actions": [
+                "1. Monitor parameters closely",
+                "2. Check for recent changes",
+                "3. Verify sensor operation"
+            ],
+            "resolution_steps": [
+                "1. Review recent operational changes",
+                "2. Check sensor calibration",
+                "3. Monitor trend over next hour"
             ]
         })
     
@@ -968,6 +1082,53 @@ def get_industrial_standards():
         return jsonify(standards)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/model-metrics", methods=["GET"])
+def get_model_metrics():
+    """Get current model performance metrics"""
+    try:
+        metrics = {
+            "lstm_accuracy": 87.11,  # Default fallback
+            "rf_accuracy": 93.80,    # Default fallback
+            "training_samples": 180   # Default fallback
+        }
+        
+        # Try to load LSTM metrics from training history
+        try:
+            import pickle
+            history_path = os.path.join(MODEL_DIR, "lstm_saved", "history.pkl")
+            if os.path.exists(history_path):
+                with open(history_path, "rb") as f:
+                    history = pickle.load(f)
+                
+                if "val_mape" in history and len(history["val_mape"]) > 0:
+                    final_mape = history["val_mape"][-1]
+                    lstm_accuracy = 100 - final_mape
+                    metrics["lstm_accuracy"] = round(lstm_accuracy, 2)
+                    
+        except Exception as e:
+            print(f"Warning: Could not load LSTM metrics: {e}")
+        
+        # Calculate training samples based on data
+        try:
+            data_path = os.path.join(os.path.dirname(__file__), "sensor_data_3params.json")
+            if os.path.exists(data_path):
+                with open(data_path, "r") as f:
+                    data = json.load(f)
+                metrics["training_samples"] = len(data)
+        except Exception as e:
+            print(f"Warning: Could not count training samples: {e}")
+        
+        return jsonify(metrics)
+        
+    except Exception as e:
+        return jsonify({
+            "error": f"Failed to get model metrics: {str(e)}",
+            "lstm_accuracy": 87.11,
+            "rf_accuracy": 93.80,
+            "training_samples": 180
+        }), 500
 
 # ---------------------------
 # Manual Analysis Input Endpoint - Enhanced for Training and Prediction
@@ -1997,8 +2158,8 @@ def retrain_and_predict():
         # ---------------------------
         try:
             from sklearn.preprocessing import MinMaxScaler
-            from tensorflow.keras.models import Sequential
-            from tensorflow.keras.layers import LSTM, Dense
+            from tensorflow.keras.models import Sequential # type: ignore
+            from tensorflow.keras.layers import LSTM, Dense # type: ignore
             import tensorflow as tf
             
             # Prepare training data

@@ -18,8 +18,14 @@ const AnalysisInputModal = ({ isOpen, onClose, onAnalyze }) => {
   const [trainingPeriod, setTrainingPeriod] = useState('3');
   const [isRetraining, setIsRetraining] = useState(false);
   const [showTrainingOptions, setShowTrainingOptions] = useState(false);
+  const [modelMetrics, setModelMetrics] = useState({
+    lstm_accuracy: 87.11,
+    rf_accuracy: 93.80,
+    training_samples: 180,
+    loading: false
+  });
 
-  // Load thresholds when component mounts
+  // Load thresholds and model metrics when component mounts
   useEffect(() => {
     const loadThresholds = async () => {
       try {
@@ -30,10 +36,34 @@ const AnalysisInputModal = ({ isOpen, onClose, onAnalyze }) => {
       }
     };
     
+    const loadModelMetrics = async () => {
+      setModelMetrics(prev => ({ ...prev, loading: true }));
+      try {
+        const response = await fetch('/api/model-metrics');
+        if (response.ok) {
+          const metrics = await response.json();
+          setModelMetrics({
+            lstm_accuracy: metrics.lstm_accuracy || 87.11,
+            rf_accuracy: metrics.rf_accuracy || 93.80,
+            training_samples: metrics.training_samples || parseInt(trainingPeriod) * 60,
+            loading: false
+          });
+        } else {
+          // Fallback to default values if API fails
+          setModelMetrics(prev => ({ ...prev, loading: false }));
+        }
+      } catch (error) {
+        console.error('Failed to load model metrics:', error);
+        // Keep default values on error
+        setModelMetrics(prev => ({ ...prev, loading: false }));
+      }
+    };
+    
     if (isOpen) {
       loadThresholds();
+      loadModelMetrics();
     }
-  }, [isOpen]);
+  }, [isOpen, trainingPeriod]);
 
   // Create chart when results are available
   useEffect(() => {
@@ -171,6 +201,7 @@ const AnalysisInputModal = ({ isOpen, onClose, onAnalyze }) => {
         headers: {
           'Content-Type': 'application/json',
         },
+        credentials: 'include',
         body: JSON.stringify(data)
       });
 
@@ -181,6 +212,18 @@ const AnalysisInputModal = ({ isOpen, onClose, onAnalyze }) => {
 
       const result = await response.json();
       setAnalysisResult(result);
+      
+      // Refresh model metrics after successful retraining
+      const metricsResponse = await fetch('/api/model-metrics');
+      if (metricsResponse.ok) {
+        const metrics = await metricsResponse.json();
+        setModelMetrics({
+          lstm_accuracy: metrics.lstm_accuracy || 87.11,
+          rf_accuracy: metrics.rf_accuracy || 93.80,
+          training_samples: metrics.training_samples || parseInt(trainingPeriod) * 60,
+          loading: false
+        });
+      }
       
     } catch (error) {
       console.error('Retraining failed:', error);
@@ -476,18 +519,42 @@ const AnalysisInputModal = ({ isOpen, onClose, onAnalyze }) => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-      <div className={`bg-white rounded-lg shadow-2xl w-full transition-all duration-300 my-4 ${
-        showResults ? 'max-w-6xl max-h-[95vh] overflow-y-auto' : 'max-w-2xl max-h-[90vh] overflow-y-auto'
+    <div className={`fixed inset-0 bg-white transition-all duration-300 flex items-center justify-center z-50 overflow-y-auto ${
+      showResults ? 'bg-opacity-70 p-0' : 'bg-opacity-50 p-4'
+    }`}>
+      <div className={`bg-white shadow-2xl w-full transition-all duration-500 ${
+        showResults 
+          ? 'max-w-full max-h-full h-full rounded-none' 
+          : 'max-w-2xl max-h-[90vh] overflow-y-auto rounded-lg my-4'
       }`}>
         {/* Header */}
-        <div className="flex justify-between items-center p-6 border-b border-gray-200">
-          <h2 className="text-xl font-bold text-gray-900">
-            {showResults ? 'Prediction Results' : 'Machine Health Prediction'}
+        <div className={`flex justify-between items-center border-b border-gray-200 ${
+          showResults ? 'p-4 bg-gradient-to-r from-indigo-600 to-purple-600' : 'p-6'
+        }`}>
+          <h2 className={`font-bold flex items-center ${
+            showResults 
+              ? 'text-2xl text-white' 
+              : 'text-xl text-gray-900'
+          }`}>
+            {showResults ? (
+              <>
+                <span className="mr-3">🔮</span>
+                Prediction Results - Full Analysis
+                {/* <span className="ml-3 px-2 py-1 text-xs bg-white bg-opacity-20 rounded-full">
+                  Full Screen
+                </span> */}
+              </>
+            ) : (
+              'Machine Health Prediction'
+            )}
           </h2>
           <button
             onClick={handleClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
+            className={`transition-colors ${
+              showResults 
+                ? 'text-white hover:text-gray-200' 
+                : 'text-gray-400 hover:text-gray-600'
+            }`}
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -698,13 +765,13 @@ const AnalysisInputModal = ({ isOpen, onClose, onAnalyze }) => {
             {/* Helper text */}
             <div className="text-center mt-2">
               <p className="text-xs text-gray-500">
-                💡 Empty fields will use default values: Temp: 25°C, Vibration: 1mm/s, Speed: 1000RPM
+                {/* 💡 Empty fields will use default values: Temp: 25°C, Vibration: 1mm/s, Speed: 1000RPM */}
               </p>
             </div>
           </div>
         ) : (
-          // Results Display
-          <div className="p-6">
+          // Results Display - Full Screen Mode
+          <div className="p-6 h-full overflow-y-auto">
             {analysisResult && (
               <div className="space-y-6">
                 {/* Training Results Display */}
@@ -1002,7 +1069,7 @@ const AnalysisInputModal = ({ isOpen, onClose, onAnalyze }) => {
                     })}
                   </div>
 
-                  {/* Enhanced Chart Section */}
+                  {/* Enhanced Chart Section - Full Screen Optimized */}
                   <div className="bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden">
                     <div className="bg-gradient-to-r from-gray-50 to-gray-100 px-6 py-4 border-b border-gray-200">
                       <div className="flex items-center justify-between">
@@ -1029,7 +1096,7 @@ const AnalysisInputModal = ({ isOpen, onClose, onAnalyze }) => {
                     </div>
                     
                     <div className="p-6">
-                      <div style={{ height: '450px' }}>
+                      <div className="h-96 lg:h-[500px]">
                         <canvas id="comparisonChart"></canvas>
                       </div>
                     </div>
@@ -1231,13 +1298,13 @@ const AnalysisInputModal = ({ isOpen, onClose, onAnalyze }) => {
                               Next 10 Minutes Forecast
                             </div>
                             <div className="text-sm text-blue-700 font-medium">
-                              High accuracy prediction (61.60%) based on {trainingPeriod}h patterns
+                              High accuracy prediction ({modelMetrics.loading ? '...' : modelMetrics.lstm_accuracy.toFixed(2)}%) based on {trainingPeriod}h patterns
                             </div>
                           </div>
                           
                           <div className="bg-blue-100 rounded-xl p-3 border border-blue-200">
                             <div className="text-xs text-blue-700 font-medium">
-                              🔮 Forecast trained on {parseInt(trainingPeriod) * 60} data points spanning {trainingPeriod} hours
+                              🔮 Forecast trained on {modelMetrics.loading ? '...' : modelMetrics.training_samples} data points spanning {trainingPeriod} hours
                             </div>
                           </div>
                         </div>
@@ -1246,42 +1313,51 @@ const AnalysisInputModal = ({ isOpen, onClose, onAnalyze }) => {
                   </div>
                   
                   {/* Model Performance Summary */}
-                  <div className="mt-8 bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl p-6 border border-gray-200">
+                  {/* <div className="mt-8 bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl p-6 border border-gray-200">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
                       <div className="bg-white rounded-lg p-4 shadow-sm">
-                        <div className="text-2xl font-bold text-gray-900">93.80%</div>
+                        <div className="text-2xl font-bold text-gray-900">
+                          {modelMetrics.loading ? '...' : `${modelMetrics.rf_accuracy.toFixed(2)}%`}
+                        </div>
                         <div className="text-sm text-gray-600 font-medium">Classification Accuracy</div>
                       </div>
                       <div className="bg-white rounded-lg p-4 shadow-sm">
-                        <div className="text-2xl font-bold text-gray-900">61.60%</div>
+                        <div className="text-2xl font-bold text-gray-900">
+                          {modelMetrics.loading ? '...' : `${modelMetrics.lstm_accuracy.toFixed(2)}%`}
+                        </div>
                         <div className="text-sm text-gray-600 font-medium">Prediction Confidence</div>
                       </div>
                       <div className="bg-white rounded-lg p-4 shadow-sm">
-                        <div className="text-2xl font-bold text-gray-900">{parseInt(trainingPeriod) * 60}</div>
+                        <div className="text-2xl font-bold text-gray-900">
+                          {modelMetrics.loading ? '...' : modelMetrics.training_samples}
+                        </div>
                         <div className="text-sm text-gray-600 font-medium">Training Samples</div>
                       </div>
                     </div>
-                  </div>
-                </div>
+                  </div> */}
+              </div>
 
-                {/* Action Buttons */}
-                <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+                {/* Action Buttons - Enhanced for Full Screen */}
+                <div className="flex justify-center space-x-4 pt-6 mt-8 border-t-2 border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100 -mx-6 px-6 py-4 rounded-b-2xl">
                   <button
                     onClick={() => {
                       setShowResults(false);
                       setAnalysisResult(null);
                     }}
-                    className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
+                    className="px-6 py-3 text-gray-700 bg-white border-2 border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all duration-200 font-semibold shadow-sm hover:shadow-md"
                   >
+                    <span className="mr-2">🔄</span>
                     New Prediction
                   </button>
                   <button
                     onClick={handleClose}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                    className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 font-semibold shadow-md hover:shadow-lg"
                   >
+                    <span className="mr-2">✕</span>
                     Close
                   </button>
                 </div>
+                  
               </div>
             )}
           </div>

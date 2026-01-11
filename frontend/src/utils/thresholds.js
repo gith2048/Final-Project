@@ -6,28 +6,28 @@
  * All components should import and use these values to ensure consistency.
  */
 
-// STANDARD THRESHOLD VALUES
+// STANDARD THRESHOLD VALUES (Updated to match backend industry standards)
 // =========================
 
-// Temperature Thresholds (°C)
+// Temperature Thresholds (°C) - Based on NEMA Class B Insulation Standards
 export const TEMP_THRESHOLDS = {
-  warning: 75.0,      // Warning level - monitor closely
-  critical: 85.0,     // Critical level - immediate attention
-  emergency: 95.0     // Emergency level - shutdown required
+  warning: 85.0,      // Unsatisfactory level - requires attention
+  critical: 105.0,    // Unacceptable level - immediate action required
+  emergency: 130.0    // Maximum safe operating temperature
 };
 
-// Vibration Thresholds (mm/s)
+// Vibration Thresholds (mm/s) - Based on ISO 10816-3 Standard
 export const VIBRATION_THRESHOLDS = {
-  warning: 5.0,       // Warning level - monitor closely
-  critical: 7.0,      // Critical level - immediate attention
-  emergency: 10.0     // Emergency level - shutdown required
+  warning: 4.5,       // Unsatisfactory level - restricted operation
+  critical: 11.2,     // Unacceptable level - shutdown required
+  emergency: 25.0     // Extreme danger level
 };
 
-// Speed Thresholds (RPM)
+// Speed Thresholds (RPM) - Based on industry standards for 4-pole motors
 export const SPEED_THRESHOLDS = {
-  warning: 1200.0,    // Warning level - monitor closely
-  critical: 1350.0,   // Critical level - immediate attention
-  emergency: 1500.0   // Emergency level - shutdown required
+  warning: 1300.0,    // Unsatisfactory level - monitor closely
+  critical: 1450.0,   // Unacceptable level - dangerous overspeed
+  emergency: 1600.0   // Extreme overspeed - immediate shutdown
 };
 
 // COMBINED THRESHOLDS FOR EASY ACCESS
@@ -69,10 +69,10 @@ export const getThreshold = (parameter, level) => {
  * 
  * @param {string} parameter - 'temperature', 'vibration', or 'speed'
  * @param {number} value - Current value to check
- * @returns {string} 'healthy', 'warning', 'critical', or 'emergency'
+ * @returns {string} 'healthy', 'satisfactory', 'warning', 'critical', or 'emergency'
  * 
  * @example
- * checkThresholdStatus('temperature', 80.0) // returns 'warning'
+ * checkThresholdStatus('temperature', 80.0) // returns 'satisfactory'
  */
 export const checkThresholdStatus = (parameter, value) => {
   if (!ALL_THRESHOLDS[parameter]) {
@@ -87,6 +87,12 @@ export const checkThresholdStatus = (parameter, value) => {
     return 'critical';
   } else if (value >= thresholds.warning) {
     return 'warning';
+  } else if (parameter === 'temperature' && value >= 70.0) {
+    return 'satisfactory';  // Temperature 70-85°C is satisfactory
+  } else if (parameter === 'vibration' && value >= 1.8) {
+    return 'satisfactory';  // Vibration 1.8-4.5 mm/s is satisfactory
+  } else if (parameter === 'speed' && value >= 1200.0) {
+    return 'satisfactory';  // Speed 1200-1300 RPM is satisfactory
   } else {
     return 'healthy';
   }
@@ -110,7 +116,7 @@ export const getOverallStatus = (temp, vibration, speed) => {
   const speedStatus = checkThresholdStatus('speed', speed);
   
   // Get the highest severity level
-  const statusPriority = { healthy: 0, warning: 1, critical: 2, emergency: 3 };
+  const statusPriority = { healthy: 0, satisfactory: 1, warning: 2, critical: 3, emergency: 4 };
   const statuses = [tempStatus, vibStatus, speedStatus];
   const highestStatus = statuses.reduce((prev, current) => 
     statusPriority[current] > statusPriority[prev] ? current : prev
@@ -128,10 +134,20 @@ export const getOverallStatus = (temp, vibration, speed) => {
       borderColor: 'border-green-200',
       icon: '✅'
     },
+    satisfactory: {
+      level: 'satisfactory',
+      status: 'Satisfactory',
+      description: 'Monitor closely',
+      priority: 'low',
+      color: 'text-blue-600',
+      bgColor: 'bg-blue-50',
+      borderColor: 'border-blue-200',
+      icon: '📊'
+    },
     warning: {
       level: 'warning',
       status: 'High Risk',
-      description: 'Monitor closely',
+      description: 'Attention required',
       priority: 'medium',
       color: 'text-orange-600',
       bgColor: 'bg-orange-50',
@@ -185,6 +201,7 @@ export const getMachineCondition = (temp, vibration, speed) => {
   // Map new status levels to legacy names for backward compatibility
   const legacyStatusMap = {
     'healthy': 'Healthy',
+    'satisfactory': 'Satisfactory',
     'warning': 'High Risk',
     'critical': 'Critical',
     'emergency': 'Critical' // Emergency maps to Critical for UI simplicity
@@ -273,6 +290,7 @@ export const getThresholdCounts = (temp, vibration, speed) => {
   
   const counts = {
     healthy: 0,
+    satisfactory: 0,
     warning: 0,
     critical: 0,
     emergency: 0

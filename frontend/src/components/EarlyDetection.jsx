@@ -261,7 +261,7 @@ const EarlyDetection = ({ currentData, selectedMachine, isVisible = true }) => {
             );
 
             // Check if condition is worsening
-            const conditionLevels = { 'Healthy': 0, 'Medium Risk': 1, 'High Risk': 2, 'Critical': 3 };
+            const conditionLevels = { 'Healthy': 0, 'Satisfactory': 1, 'High Risk': 2, 'Critical': 3 };
             const currentLevel = conditionLevels[currentCondition.status] || 0;
             const predictedLevel = conditionLevels[predictedCondition.status] || 0;
 
