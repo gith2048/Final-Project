@@ -47,7 +47,7 @@ def test_models():
         print(f"❌ LSTM V1 failed: {e}")
         results['lstm_v1'] = False
     
-    # Test Random Forest
+    # Test Random Forest (UPDATED for 12 features)
     try:
         with open('rf_model.pkl', 'rb') as f:
             rf_model = pickle.load(f)
@@ -56,7 +56,11 @@ def test_models():
         with open('label_encoder.pkl', 'rb') as f:
             label_encoder = pickle.load(f)
         
-        test_features = np.array([[50, 3, 1200]])
+        # Import feature engineering utility
+        from feature_utils import create_features_array
+        
+        # Use 12 engineered features instead of 3
+        test_features = create_features_array(50, 3, 1200)
         scaled_features = rf_scaler.transform(test_features)
         pred = rf_model.predict(scaled_features)[0]
         condition = label_encoder.inverse_transform([pred])[0]
@@ -67,12 +71,17 @@ def test_models():
         print(f"❌ Random Forest failed: {e}")
         results['random_forest'] = False
     
-    # Test Isolation Forest
+    # Test Isolation Forest (UPDATED for 12 features)
     try:
         with open('iso_model.pkl', 'rb') as f:
             iso_model = pickle.load(f)
         
-        scaled_features = rf_scaler.transform([[50, 3, 1200]])
+        # Import feature engineering utility
+        from feature_utils import create_features_array
+        
+        # Use 12 engineered features instead of 3
+        test_features = create_features_array(50, 3, 1200)
+        scaled_features = rf_scaler.transform(test_features)
         pred = iso_model.predict(scaled_features)[0]
         score = iso_model.decision_function(scaled_features)[0]
         status = "ANOMALY" if pred == -1 else "NORMAL"

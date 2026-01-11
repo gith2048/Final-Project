@@ -142,12 +142,14 @@ def test_random_forest():
             {"name": "Critical Condition", "temp": 90, "vib": 8.0, "speed": 1800},
             {"name": "Low Speed", "temp": 40, "vib": 1.5, "speed": 800}
         ]
+        # Import feature engineering utility
+        from feature_utils import create_features_array, create_batch_features_array
         
         print("🔍 Testing classification scenarios:")
         
         for scenario in test_scenarios:
-            # Prepare features
-            test_features = np.array([[scenario["temp"], scenario["vib"], scenario["speed"]]])
+            # Use 12 engineered features instead of 3
+            test_features = create_features_array(scenario["temp"], scenario["vib"], scenario["speed"])
             scaled_features = scaler.transform(test_features)
             
             # Predict
@@ -162,10 +164,12 @@ def test_random_forest():
             print(f"     Input: T={scenario['temp']}°C, V={scenario['vib']}mm/s, S={scenario['speed']}RPM")
             print(f"     Prediction: {condition.upper()} (confidence: {confidence:.1f}%)")
         
-        # Test with real data sample
+        # Test with real data sample (UPDATED for 12 features)
         print("\n📊 Testing with real data sample...")
         sample_data = df[features].sample(10).values
-        scaled_sample = scaler.transform(sample_data)
+        # Convert 3-feature data to 12-feature data
+        sample_features = create_batch_features_array(sample_data)
+        scaled_sample = scaler.transform(sample_features)
         predictions = rf_model.predict(scaled_sample)
         
         # Count predictions
@@ -207,12 +211,14 @@ def test_isolation_forest():
             {"name": "Extreme Values", "temp": 120, "vib": 15.0, "speed": 2500},
             {"name": "Low Values", "temp": 10, "vib": 0.1, "speed": 100}
         ]
+        # Import feature engineering utility
+        from feature_utils import create_features_array, create_batch_features_array
         
         print("🔍 Testing anomaly detection scenarios:")
         
         for scenario in test_scenarios:
-            # Prepare features
-            test_features = np.array([[scenario["temp"], scenario["vib"], scenario["speed"]]])
+            # Use 12 engineered features instead of 3
+            test_features = create_features_array(scenario["temp"], scenario["vib"], scenario["speed"])
             scaled_features = scaler.transform(test_features)
             
             # Predict
@@ -227,13 +233,15 @@ def test_isolation_forest():
             print(f"     Input: T={scenario['temp']}°C, V={scenario['vib']}mm/s, S={scenario['speed']}RPM")
             print(f"     Result: {'ANOMALY' if is_anomaly else 'NORMAL'} (score: {score:.3f}, severity: {severity})")
         
-        # Test with real data sample
+        # Test with real data sample (UPDATED for 12 features)
         print("\n📊 Testing with real data sample...")
         df = load_test_data()
         if df is not None:
             features = ['temperature', 'vibration', 'speed']
             sample_data = df[features].sample(20).values
-            scaled_sample = scaler.transform(sample_data)
+            # Convert 3-feature data to 12-feature data
+            sample_features = create_batch_features_array(sample_data)
+            scaled_sample = scaler.transform(sample_features)
             predictions = iso_model.predict(scaled_sample)
             
             normal_count = np.sum(predictions == 1)
@@ -302,9 +310,12 @@ def test_backend_integration():
                 rf_scaler = pickle.load(f)
             with open('label_encoder.pkl', 'rb') as f:
                 label_encoder = pickle.load(f)
+            # Import feature engineering utility
+            from feature_utils import create_features_array
             
-            features = np.array([[temperature, vibration, speed]])
-            features_scaled = rf_scaler.transform(features)
+            # Use 12 engineered features instead of 3
+            test_features = create_features_array(temperature, vibration, speed)
+            features_scaled = rf_scaler.transform(test_features)
             rf_pred = int(rf_model.predict(features_scaled)[0])
             
             # Map predictions to conditions (same as backend)
@@ -327,12 +338,17 @@ def test_backend_integration():
         except Exception as e:
             print(f"❌ Random Forest classification failed: {e}")
         
-        # 3. Isolation Forest Anomaly Detection
+        # 3. Isolation Forest Anomaly Detection (UPDATED for 12 features)
         try:
             with open('iso_model.pkl', 'rb') as f:
                 iso_model = pickle.load(f)
             
-            features_scaled = rf_scaler.transform([[temperature, vibration, speed]])
+            # Import feature engineering utility
+            from feature_utils import create_features_array
+            
+            # Use 12 engineered features instead of 3
+            test_features = create_features_array(temperature, vibration, speed)
+            features_scaled = rf_scaler.transform(test_features)
             iso_pred = int(iso_model.predict(features_scaled)[0])
             iso_score = float(iso_model.decision_function(features_scaled)[0])
             

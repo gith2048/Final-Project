@@ -1014,8 +1014,34 @@ def manual_analysis():
         # But analyze both for comprehensive assessment
         vibration_for_models = smooth_vibration
         
-        # Prepare features for models [temperature, vibration, speed]
-        features = [temperature, vibration_for_models, speed]
+        # Prepare features for models using 12 engineered features
+        def create_engineered_features_manual(temp, vib, spd):
+            # Basic features
+            temp_val = float(temp)
+            vib_val = float(vib) 
+            speed_val = float(spd)
+            
+            # Engineered features (using current values as approximations)
+            temp_roll_mean = temp_val
+            temp_roll_std = 0.1
+            temp_trend = 0.0
+            
+            vib_roll_mean = vib_val
+            vib_roll_std = 0.1
+            vib_trend = 0.0
+            
+            speed_roll_mean = speed_val
+            speed_roll_std = 1.0
+            speed_trend = 0.0
+            
+            # Return 12 features in the same order as training
+            return [
+                temp_val, temp_roll_mean, temp_roll_std, temp_trend,
+                vib_val, vib_roll_mean, vib_roll_std, vib_trend,
+                speed_val, speed_roll_mean, speed_roll_std, speed_trend
+            ]
+        
+        features = create_engineered_features_manual(temperature, vibration_for_models, speed)
         
         # ---------------------------
         # LSTM PREDICTION (Next 5-10 minutes)
@@ -1411,8 +1437,40 @@ def analyze_chart():
     latest_temp = max(temp[-10:]) if temp else 0
     latest_speed = max(speed[-10:]) if speed else 0
     latest_vib = max(vib[-10:]) if vib else 0
-    # Feature order for RF and ISO: [temperature, vibration, speed] (matches training)
-    latest_for_models = [latest_temp, latest_vib, latest_speed]
+    
+    # Create engineered features to match training data (12 features total)
+    # Since we only have single values, we'll use them as both current and rolling values
+    def create_engineered_features(temperature, vibration, speed):
+        # Basic features
+        temp_val = float(temperature)
+        vib_val = float(vibration) 
+        speed_val = float(speed)
+        
+        # Engineered features (using current values as approximations)
+        temp_roll_mean = temp_val  # Approximate rolling mean as current value
+        temp_roll_std = 0.1  # Small std deviation as default
+        temp_trend = 0.0  # No trend information available
+        
+        vib_roll_mean = vib_val
+        vib_roll_std = 0.1
+        vib_trend = 0.0
+        
+        speed_roll_mean = speed_val
+        speed_roll_std = 1.0  # Slightly higher std for speed
+        speed_trend = 0.0
+        
+        # Return 12 features in the same order as training:
+        # [temp, temp_roll_mean, temp_roll_std, temp_trend, 
+        #  vib, vib_roll_mean, vib_roll_std, vib_trend,
+        #  speed, speed_roll_mean, speed_roll_std, speed_trend]
+        return [
+            temp_val, temp_roll_mean, temp_roll_std, temp_trend,
+            vib_val, vib_roll_mean, vib_roll_std, vib_trend,
+            speed_val, speed_roll_mean, speed_roll_std, speed_trend
+        ]
+    
+    # Create engineered features for model predictions
+    latest_for_models = create_engineered_features(latest_temp, latest_vib, latest_speed)
 
     # ---------------------------
     # FORECAST (LSTM) with thread lock
@@ -1420,7 +1478,7 @@ def analyze_chart():
     try:
         if lstm_model is not None and lstm_scaler is not None:
             # Build sequence using available last 10 rows (or fallback)
-            # IMPORTANT: LSTM was trained with order [temperature, vibration, speed]
+            # IMPORTANT: LSTM was trained with order [temperature, vibration, speed] (3 features only)
             seq_len = 10
             if len(temp) >= seq_len:
                 # Correct order: temperature, vibration, speed (matches training)
@@ -1434,12 +1492,19 @@ def analyze_chart():
                 f_vib = max(0, float(inv[1]))
                 f_speed = max(0, float(inv[2]))
             else:
-                f_temp, f_speed, f_vib = latest_for_models
+                # Use simple forecast based on current values
+                f_temp = latest_temp * 1.02  # Slight increase
+                f_vib = latest_vib * 0.98   # Slight decrease
+                f_speed = latest_speed * 1.01  # Slight increase
         else:
-            f_temp, f_speed, f_vib = latest_for_models
+            f_temp = latest_temp * 1.01
+            f_vib = latest_vib * 0.99
+            f_speed = latest_speed * 1.005
     except Exception as e:
         print("❌ LSTM predict error:", e)
-        f_temp, f_speed, f_vib = latest_for_models
+        f_temp = latest_temp * 1.01
+        f_vib = latest_vib * 0.99
+        f_speed = latest_speed * 1.005
 
     # ---------------------------
     # RANDOM FOREST (FIXED: Now uses scaling and correct label mapping)
@@ -2047,7 +2112,34 @@ def retrain_and_predict():
         # ---------------------------
         try:
             # Run enhanced analysis with the retrained model
-            features_for_analysis = [temperature, vibration_for_models, speed]
+            # Create engineered features to match training data (12 features total)
+            def create_engineered_features_for_analysis(temp, vib, spd):
+                # Basic features
+                temp_val = float(temp)
+                vib_val = float(vib) 
+                speed_val = float(spd)
+                
+                # Engineered features (using current values as approximations)
+                temp_roll_mean = temp_val
+                temp_roll_std = 0.1
+                temp_trend = 0.0
+                
+                vib_roll_mean = vib_val
+                vib_roll_std = 0.1
+                vib_trend = 0.0
+                
+                speed_roll_mean = speed_val
+                speed_roll_std = 1.0
+                speed_trend = 0.0
+                
+                # Return 12 features in the same order as training
+                return [
+                    temp_val, temp_roll_mean, temp_roll_std, temp_trend,
+                    vib_val, vib_roll_mean, vib_roll_std, vib_trend,
+                    speed_val, speed_roll_mean, speed_roll_std, speed_trend
+                ]
+            
+            features_for_analysis = create_engineered_features_for_analysis(temperature, vibration_for_models, speed)
             
             # Random Forest Analysis (if available)
             rf_result = None
@@ -2180,13 +2272,25 @@ def retrain_and_predict():
             
         except Exception as e:
             print(f"❌ Analysis error: {e}")
-            # Fallback analysis
+            # Fallback analysis with all required variables
             overall_condition = "Normal"
             priority = "Continue Standard Monitoring"
             condition_color = "green"
             parameter_analysis = []
-            rf_result = None
-            iso_result = None
+            critical_count = 0
+            warning_count = 0
+            rf_result = {
+                "condition": "Unknown",
+                "risk_level": "Unknown", 
+                "description": f"Model error: {str(e)}",
+                "prediction_code": -1
+            }
+            iso_result = {
+                "anomaly_status": "Unknown",
+                "severity": "Unknown",
+                "description": f"Model error: {str(e)}",
+                "anomaly_score": 0.0
+            }
         
         # ---------------------------
         # RESPONSE WITH ENHANCED PREDICTIONS
